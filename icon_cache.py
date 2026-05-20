@@ -1,0 +1,182 @@
+"""
+Gestion des icônes de jeux.
+Flux : mémoire → disque (data/icons/<nom>.png) → extraction depuis l'exe.
+L'icône est sauvegardée sur disque lors de la première extraction réussie,
+ce qui la rend disponible même si l'exe est déplacé ou désinstallé.
+"""
+import re
+import ctypes
+import ctypes.wintypes as wintypes
+from pathlib import Path
+
+import customtkinter as ctk
+from PIL import Image
+
+ICON_DIR = Path(__file__).parent / "data" / "icons"
+_SAVE_SIZE = 32   # résolution de sauvegarde sur disque
+
+_mem_cache: dict = {}   # (game_name, size) → Image
+
+
+def _safe_filename(name: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip()
+
+
+def get_game_icon(game_name: str, exe_path: str, size: int) -> Image.Image | None:
+    """Charge l'icône : mémoire → disque → exe. Sauvegarde sur disque au premier succès."""
+    key = (game_name, size)
+    if key in _mem_cache:
+        return _mem_cache[key]
+
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
+    disk_path = ICON_DIR / (_safe_filename(game_name) + ".png")
+
+    if disk_path.exists():
+        try:
+            img = Image.open(disk_path).convert("RGBA")
+            if img.size != (size, size):
+                img = img.resize((size, size), Image.Resampling.LANCZOS)
+            _mem_cache[key] = img
+            return img
+        except Exception:
+            pass
+
+    if not exe_path:
+        return None
+
+    img = _extract_from_exe(exe_path, _SAVE_SIZE)
+    if img is None:
+        return None
+
+    try:
+        img.save(disk_path, "PNG")
+    except Exception:
+        pass
+
+    if img.size != (size, size):
+        img = img.resize((size, size), Image.Resampling.LANCZOS)
+    _mem_cache[key] = img
+    return img
+
+
+def get_pil_icon(exe_path: str, size: int = 24) -> Image.Image | None:
+    """Extraction directe depuis l'exe, sans cache disque (compat)."""
+    return _extract_from_exe(exe_path, size)
+
+
+def get_ctk_icon(exe_path: str, size: int = 24) -> ctk.CTkImage | None:
+    img = get_pil_icon(exe_path, size)
+    if img is None:
+        return None
+    return ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
+
+
+def _extract_from_exe(exe_path: str, size: int) -> Image.Image | None:
+    try:
+        SHGFI_ICON      = 0x100
+        SHGFI_LARGEICON = 0x0
+        SHGFI_SMALLICON = 0x1
+
+        class SHFILEINFOW(ctypes.Structure):
+            _fields_ = [
+                ("hIcon",         wintypes.HICON),
+                ("iIcon",         ctypes.c_int),
+                ("dwAttributes",  wintypes.DWORD),
+                ("szDisplayName", ctypes.c_wchar * 260),
+                ("szTypeName",    ctypes.c_wchar * 80),
+            ]
+
+        shfi  = SHFILEINFOW()
+        flags = SHGFI_ICON | (SHGFI_SMALLICON if size <= 16 else SHGFI_LARGEICON)
+        ret   = ctypes.windll.shell32.SHGetFileInfoW(
+            exe_path, 0, ctypes.byref(shfi), ctypes.sizeof(shfi), flags
+        )
+        if not ret or not shfi.hIcon:
+            return None
+
+        class ICONINFO(ctypes.Structure):
+            _fields_ = [
+                ("fIcon",    wintypes.BOOL),
+                ("xHotspot", wintypes.DWORD),
+                ("yHotspot", wintypes.DWORD),
+                ("hbmMask",  wintypes.HBITMAP),
+                ("hbmColor", wintypes.HBITMAP),
+            ]
+
+        ii = ICONINFO()
+        ctypes.windll.user32.GetIconInfo(shfi.hIcon, ctypes.byref(ii))
+
+        if not ii.hbmColor:
+            ctypes.windll.user32.DestroyIcon(shfi.hIcon)
+            return None
+
+        class BITMAP(ctypes.Structure):
+            _fields_ = [
+                ("bmType",       ctypes.c_long),
+                ("bmWidth",      ctypes.c_long),
+                ("bmHeight",     ctypes.c_long),
+                ("bmWidthBytes", ctypes.c_long),
+                ("bmPlanes",     wintypes.WORD),
+                ("bmBitsPixel",  wintypes.WORD),
+                ("bmBits",       ctypes.c_void_p),
+            ]
+
+        bmp = BITMAP()
+        ctypes.windll.gdi32.GetObjectW(ii.hbmColor, ctypes.sizeof(bmp), ctypes.byref(bmp))
+        w, h = bmp.bmWidth, abs(bmp.bmHeight)
+
+        if w == 0 or h == 0:
+            ctypes.windll.gdi32.DeleteObject(ii.hbmMask)
+            ctypes.windll.gdi32.DeleteObject(ii.hbmColor)
+            ctypes.windll.user32.DestroyIcon(shfi.hIcon)
+            return None
+
+        class BITMAPINFOHEADER(ctypes.Structure):
+            _fields_ = [
+                ("biSize",          wintypes.DWORD),
+                ("biWidth",         ctypes.c_long),
+                ("biHeight",        ctypes.c_long),
+                ("biPlanes",        wintypes.WORD),
+                ("biBitCount",      wintypes.WORD),
+                ("biCompression",   wintypes.DWORD),
+                ("biSizeImage",     wintypes.DWORD),
+                ("biXPelsPerMeter", ctypes.c_long),
+                ("biYPelsPerMeter", ctypes.c_long),
+                ("biClrUsed",       wintypes.DWORD),
+                ("biClrImportant",  wintypes.DWORD),
+            ]
+
+        bi             = BITMAPINFOHEADER()
+        bi.biSize      = ctypes.sizeof(bi)
+        bi.biWidth     = w
+        bi.biHeight    = h
+        bi.biPlanes    = 1
+        bi.biBitCount  = 32
+        bi.biCompression = 0
+
+        buf = ctypes.create_string_buffer(w * h * 4)
+        hdc = ctypes.windll.user32.GetDC(None)
+        ctypes.windll.gdi32.GetDIBits(hdc, ii.hbmColor, 0, h, buf, ctypes.byref(bi), 0)
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+
+        ctypes.windll.gdi32.DeleteObject(ii.hbmMask)
+        ctypes.windll.gdi32.DeleteObject(ii.hbmColor)
+        ctypes.windll.user32.DestroyIcon(shfi.hIcon)
+
+        data = bytearray(buf)
+        for i in range(0, len(data), 4):           # BGRA → RGBA
+            data[i], data[i + 2] = data[i + 2], data[i]
+
+        if max(data[3::4]) == 0:                   # pas de canal alpha → opaque
+            for i in range(3, len(data), 4):
+                data[i] = 255
+
+        img = Image.frombytes("RGBA", (w, h), bytes(data))
+        img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)  # GetDIBits bottom-up
+
+        if (w, h) != (size, size):
+            img = img.resize((size, size), Image.Resampling.LANCZOS)
+
+        return img
+    except Exception:
+        return None
