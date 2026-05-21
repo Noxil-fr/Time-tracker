@@ -5,6 +5,21 @@ from typing import Callable
 
 import psutil
 
+_CHECKPOINT_INTERVAL = 60   # secondes entre chaque sauvegarde de checkpoint
+_SUGGESTION_INTERVAL = 300  # secondes entre chaque scan de jeux non suivis
+
+_GAME_DIRS = (
+    "steamapps\\common\\",
+    "gog games\\",
+    "gog galaxy\\games\\",
+    "epic games\\",
+    "ea games\\",
+    "electronic arts\\",
+    "ubisoft game launcher\\games\\",
+    "xboxgames\\",
+    "riot games\\",
+)
+
 
 def _get_processes() -> dict:
     """Retourne {nom_process.lower(): exe_path} pour tous les processus actifs."""
@@ -25,11 +40,14 @@ class ProcessTracker:
         data_manager,
         on_game_start: Callable[[str], None],
         on_game_stop: Callable[[str, datetime, datetime], None],
+        on_suggestion: Callable[[str, str], None] | None = None,
     ):
         self._dm = data_manager
         self._on_start = on_game_start
         self._on_stop = on_game_stop
+        self._on_suggestion = on_suggestion
         self._active: dict[str, datetime] = {}  # {nom_jeu: heure_debut}
+        self._suggested: set[str] = set()
         self._running = False
         self._thread = None
         self._lock = threading.Lock()
@@ -40,7 +58,25 @@ class ProcessTracker:
         self._thread.start()
 
     def stop(self):
+        """Arrête le tracker et flush toutes les sessions actives."""
         self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=4)
+
+        # Sauvegarder les sessions encore actives au moment du Quitter
+        now = datetime.now()
+        with self._lock:
+            for name, start in list(self._active.items()):
+                duration = int((now - start).total_seconds())
+                if duration >= 10:
+                    try:
+                        self._dm.record_session(name, start, now)
+                        self._on_stop(name, start, now)
+                    except Exception:
+                        pass
+            self._active.clear()
+
+        self._dm.clear_all_checkpoints()
 
     def get_active(self) -> dict:
         with self._lock:
@@ -51,12 +87,50 @@ class ProcessTracker:
         return set(_get_processes().keys())
 
     def _loop(self):
+        elapsed_since_checkpoint = 0
+        elapsed_since_suggestion = _SUGGESTION_INTERVAL - 60  # premier scan à ~60s
         while self._running:
             try:
                 self._check()
             except Exception:
                 pass
+
+            elapsed_since_checkpoint += 2
+            if elapsed_since_checkpoint >= _CHECKPOINT_INTERVAL:
+                elapsed_since_checkpoint = 0
+                with self._lock:
+                    if self._active:
+                        self._dm.save_checkpoint(dict(self._active))
+
+            elapsed_since_suggestion += 2
+            if elapsed_since_suggestion >= _SUGGESTION_INTERVAL:
+                elapsed_since_suggestion = 0
+                try:
+                    self._check_suggestions()
+                except Exception:
+                    pass
+
             time.sleep(2)
+
+    def _check_suggestions(self):
+        if not self._on_suggestion:
+            return
+        process_map = self._dm.get_process_map()
+        tracked = set(process_map.keys())
+        for p in psutil.process_iter(["name", "exe"]):
+            try:
+                name = p.info["name"]
+                exe = p.info["exe"] or ""
+                if not name or not exe:
+                    continue
+                name_lower = name.lower()
+                if name_lower in tracked or name_lower in self._suggested:
+                    continue
+                if any(d in exe.lower() for d in _GAME_DIRS):
+                    self._suggested.add(name_lower)
+                    self._on_suggestion(name, exe)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
 
     def _check(self):
         process_map = self._dm.get_process_map()
@@ -83,5 +157,6 @@ class ProcessTracker:
                 if proc and proc not in running:
                     start = self._active.pop(name)
                     end = datetime.now()
+                    self._dm.clear_checkpoint(name)
                     self._dm.record_session(name, start, end)
                     self._on_stop(name, start, end)

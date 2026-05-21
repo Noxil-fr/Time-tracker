@@ -1,5 +1,6 @@
 import customtkinter as ctk
 
+from tray import TrayManager, set_autostart, is_autostart_enabled, _is_frozen
 from ui.main_window import MainWindow
 
 
@@ -15,7 +16,7 @@ def _patch_ctk_draw():
     def _make_debounced(orig_fn):
         def _debounced(self, no_color_updates: bool = False):
             if getattr(self, "_draw_pending", False):
-                if not no_color_updates:   # full-color update trumps shape-only
+                if not no_color_updates:
                     self._draw_nc = False
                 return
             self._draw_pending = True
@@ -49,7 +50,18 @@ def main():
     ctk.set_default_color_theme("blue")
 
     root = ctk.CTk()
-    MainWindow(root)
+    win  = MainWindow(root)
+
+    tray = TrayManager(root, quit_callback=win.quit)
+    tray.start()
+
+    # Masquer la fenêtre via le tray plutôt que la fermer
+    win.set_hide_on_close(tray.hide_window)
+
+    # Activer le démarrage automatique si on tourne en .exe et que ce n'est pas déjà fait
+    if _is_frozen() and not is_autostart_enabled():
+        set_autostart(True)
+
     root.mainloop()
 
 
