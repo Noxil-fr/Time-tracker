@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import customtkinter as ctk
 import psutil
 
@@ -42,7 +44,13 @@ def _get_all_processes() -> list[tuple[str, str]]:
 # ── Dialog ─────────────────────────────────────────────────────────────────────
 
 class AddGameDialog(ctk.CTkToplevel):
-    def __init__(self, parent, dm: DataManager, tracker: ProcessTracker):
+    def __init__(
+        self,
+        parent,
+        dm: DataManager,
+        tracker: ProcessTracker,
+        preselect: tuple[str, str] | None = None,
+    ):
         super().__init__(parent)
         self._dm = dm
         self._tracker = tracker
@@ -65,6 +73,11 @@ class AddGameDialog(ctk.CTkToplevel):
         self._build()
 
         self._snapshot = self._tracker.get_snapshot()
+
+        if preselect:
+            proc, exe = preselect
+            self._proc_exe_map[proc] = exe
+            self._on_select(proc)
 
     def _center(self, w: int, h: int):
         self.update_idletasks()
@@ -440,6 +453,17 @@ class AddGameDialog(ctk.CTkToplevel):
         self._add_btn.configure(state="normal")
         self._error_label.configure(text="")
 
+    def _get_process_start(self, proc_name: str) -> datetime | None:
+        """Retourne l'heure de démarrage du processus s'il est en cours, sinon None."""
+        proc_lower = proc_name.lower()
+        for p in psutil.process_iter(["name", "create_time"]):
+            try:
+                if p.info["name"] and p.info["name"].lower() == proc_lower:
+                    return datetime.fromtimestamp(p.info["create_time"])
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return None
+
     def _confirm(self):
         name = self._name_entry.get().strip()
         proc = self._selected_proc
@@ -450,6 +474,80 @@ class AddGameDialog(ctk.CTkToplevel):
                 text=f'Un jeu nommé "{name}" existe déjà.'
             )
             return
+
+        retroactive_start = self._get_process_start(proc)
         self._dm.add_game(name, proc, self._selected_exe)
+
+        parent = self.master
         self._alive = False
+        self.destroy()
+
+        if retroactive_start is not None:
+            elapsed = int((datetime.now() - retroactive_start).total_seconds())
+            if elapsed >= 60:
+                _RetroactiveDialog(parent, self._dm, name, retroactive_start)
+
+
+class _RetroactiveDialog(ctk.CTkToplevel):
+    def __init__(self, parent, dm: DataManager, game_name: str, start: datetime):
+        super().__init__(parent)
+        self._dm = dm
+        self._game_name = game_name
+        self._start = start
+
+        self.title("Session en cours détectée")
+        self.resizable(False, False)
+        self.grab_set()
+        self.configure(fg_color="#11111b")
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+        elapsed = int((datetime.now() - start).total_seconds())
+        h, m = divmod(elapsed // 60, 60)
+        elapsed_str = f"{h}h {m:02d}min" if h else f"{m} min"
+
+        ctk.CTkLabel(
+            self,
+            text=f"{game_name} est déjà en cours depuis {elapsed_str}.",
+            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            text_color="#cdd6f4",
+            wraplength=380,
+        ).pack(pady=(22, 6), padx=20)
+
+        ctk.CTkLabel(
+            self,
+            text="Voulez-vous récupérer ce temps dans votre historique ?",
+            font=ctk.CTkFont("Segoe UI", 12),
+            text_color="#a6adc8",
+            wraplength=380,
+        ).pack(padx=20)
+
+        btn_row = ctk.CTkFrame(self, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=(20, 20))
+
+        ctk.CTkButton(
+            btn_row, text="Non, ignorer",
+            font=ctk.CTkFont("Segoe UI", 12),
+            fg_color="#313244", hover_color="#45475a",
+            text_color="#cdd6f4", corner_radius=8,
+            command=self.destroy,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            btn_row, text="Oui, récupérer",
+            font=ctk.CTkFont("Segoe UI", 12, "bold"),
+            fg_color="#a6e3a1", hover_color="#94e2d5",
+            text_color="#11111b", corner_radius=8,
+            command=self._confirm,
+        ).pack(side="right")
+
+        self._center(420, 175)
+
+    def _center(self, w: int, h: int):
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _confirm(self):
+        self._dm.record_session(self._game_name, self._start, datetime.now())
         self.destroy()

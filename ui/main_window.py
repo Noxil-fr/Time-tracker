@@ -34,6 +34,7 @@ class MainWindow:
             self._dm,
             on_game_start=self._on_game_start,
             on_game_stop=self._on_game_stop,
+            on_suggestion=self._on_game_suggestion,
         )
 
         self._current_tab = "Jeux"
@@ -142,6 +143,15 @@ class MainWindow:
 
     # ── Tracker callbacks ──────────────────────────────────────────────────────
 
+    def _on_game_suggestion(self, proc_name: str, exe_path: str):
+        self._root.after(0, lambda: self._show_suggestion(proc_name, exe_path))
+
+    def _show_suggestion(self, proc_name: str, exe_path: str):
+        from ui.add_game_dialog import AddGameDialog
+        def _open():
+            AddGameDialog(self._root, self._dm, self._tracker, preselect=(proc_name, exe_path))
+        self._notifier.show_suggestion(proc_name, exe_path, _open)
+
     def _on_game_start(self, name: str):
         self._notifier.show(name, "Suivi démarré")
 
@@ -176,6 +186,18 @@ class MainWindow:
         else:
             self._status_label.configure(text="")
 
+    def set_hide_on_close(self, hide_fn):
+        """Remplace la destruction par un masquage vers le tray."""
+        self._hide_fn = hide_fn
+        self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+
     def _on_close(self):
+        if hasattr(self, "_hide_fn"):
+            self._hide_fn()
+        else:
+            self._tracker.stop()
+            self._root.destroy()
+
+    def quit(self):
         self._tracker.stop()
         self._root.destroy()

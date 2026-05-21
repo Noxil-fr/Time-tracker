@@ -2,13 +2,17 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-DATA_FILE = Path(__file__).parent / "data" / "games.json"
+DATA_FILE       = Path(__file__).parent / "data" / "games.json"
+CHECKPOINT_FILE = Path(__file__).parent / "data" / "active_sessions.json"
+
+_MIN_RECOVERY_SECONDS = 10  # sessions < 10s ignorées à la récupération
 
 
 class DataManager:
     def __init__(self):
         DATA_FILE.parent.mkdir(exist_ok=True)
         self._data = self._load()
+        self._recover_checkpoints()
 
     def _load(self) -> dict:
         if DATA_FILE.exists():
@@ -19,6 +23,85 @@ class DataManager:
     def _save(self):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(self._data, f, indent=2, ensure_ascii=False)
+
+    # ── Récupération après crash ───────────────────────────────────────────────
+
+    def _recover_checkpoints(self):
+        """Lit active_sessions.json et injecte les sessions interrompues."""
+        if not CHECKPOINT_FILE.exists():
+            return
+        try:
+            with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
+                checkpoints = json.load(f)
+            recovered = 0
+            for name, info in checkpoints.items():
+                if name not in self._data["games"]:
+                    continue
+                start    = datetime.fromisoformat(info["start"])
+                end      = datetime.fromisoformat(info["checkpoint"])
+                duration = int((end - start).total_seconds())
+                if duration < _MIN_RECOVERY_SECONDS:
+                    continue
+                self._data["games"][name]["total_seconds"] += duration
+                self._data["games"][name]["sessions"].append({
+                    "start":     start.isoformat(),
+                    "end":       end.isoformat(),
+                    "duration":  duration,
+                    "recovered": True,
+                })
+                recovered += 1
+            if recovered:
+                self._save()
+        except Exception:
+            pass
+        finally:
+            try:
+                CHECKPOINT_FILE.unlink()
+            except Exception:
+                pass
+
+    # ── Checkpoints périodiques ────────────────────────────────────────────────
+
+    def save_checkpoint(self, active: dict) -> None:
+        """Écrit {nom: {start, checkpoint}} pour toutes les sessions actives."""
+        if not active:
+            self.clear_all_checkpoints()
+            return
+        now = datetime.now().isoformat()
+        data = {
+            name: {"start": start.isoformat(), "checkpoint": now}
+            for name, start in active.items()
+        }
+        try:
+            with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def clear_checkpoint(self, name: str) -> None:
+        """Retire un jeu du fichier de checkpoint (arrêt normal)."""
+        try:
+            if not CHECKPOINT_FILE.exists():
+                return
+            with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data.pop(name, None)
+            if data:
+                with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+            else:
+                CHECKPOINT_FILE.unlink()
+        except Exception:
+            pass
+
+    def clear_all_checkpoints(self) -> None:
+        try:
+            if CHECKPOINT_FILE.exists():
+                CHECKPOINT_FILE.unlink()
+        except Exception:
+            pass
+
+    # ── API principale ─────────────────────────────────────────────────────────
 
     def get_games(self) -> dict:
         return self._data["games"]
@@ -41,7 +124,7 @@ class DataManager:
         self._data["games"][name]["sessions"].append(
             {
                 "start": start.isoformat(),
-                "end": end.isoformat(),
+                "end":   end.isoformat(),
                 "duration": duration,
             }
         )
