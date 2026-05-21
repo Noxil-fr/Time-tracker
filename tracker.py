@@ -6,19 +6,6 @@ from typing import Callable
 import psutil
 
 _CHECKPOINT_INTERVAL = 60   # secondes entre chaque sauvegarde de checkpoint
-_SUGGESTION_INTERVAL = 300  # secondes entre chaque scan de jeux non suivis
-
-_GAME_DIRS = (
-    "steamapps\\common\\",
-    "gog games\\",
-    "gog galaxy\\games\\",
-    "epic games\\",
-    "ea games\\",
-    "electronic arts\\",
-    "ubisoft game launcher\\games\\",
-    "xboxgames\\",
-    "riot games\\",
-)
 
 
 def _get_processes() -> dict:
@@ -48,6 +35,7 @@ class ProcessTracker:
         self._on_suggestion = on_suggestion
         self._active: dict[str, datetime] = {}  # {nom_jeu: heure_debut}
         self._suggested: set[str] = set()
+        self._known_games = None
         self._running = False
         self._thread = None
         self._lock = threading.Lock()
@@ -87,13 +75,33 @@ class ProcessTracker:
         return set(_get_processes().keys())
 
     def _loop(self):
+        # Construire la base de jeux connus en parallèle pour ne pas retarder le tracking
+        if self._on_suggestion:
+            def _build():
+                try:
+                    from game_library import build_known_games
+                    self._known_games = build_known_games()
+                except Exception:
+                    pass
+            threading.Thread(target=_build, daemon=True).start()
+
         elapsed_since_checkpoint = 0
-        elapsed_since_suggestion = _SUGGESTION_INTERVAL - 60  # premier scan à ~60s
+        prev_procs: set[str] = set()
+
         while self._running:
+            running = {}
             try:
-                self._check()
+                running = _get_processes()
+                self._check(running)
             except Exception:
                 pass
+
+            if self._on_suggestion and self._known_games:
+                try:
+                    self._check_suggestions(running, prev_procs)
+                except Exception:
+                    pass
+            prev_procs = set(running.keys())
 
             elapsed_since_checkpoint += 2
             if elapsed_since_checkpoint >= _CHECKPOINT_INTERVAL:
@@ -102,42 +110,29 @@ class ProcessTracker:
                     if self._active:
                         self._dm.save_checkpoint(dict(self._active))
 
-            elapsed_since_suggestion += 2
-            if elapsed_since_suggestion >= _SUGGESTION_INTERVAL:
-                elapsed_since_suggestion = 0
-                try:
-                    self._check_suggestions()
-                except Exception:
-                    pass
-
             time.sleep(2)
 
-    def _check_suggestions(self):
-        if not self._on_suggestion:
-            return
+    def _check_suggestions(self, running: dict, prev_procs: set[str]):
+        """Détecte les nouveaux processus qui correspondent à des jeux connus non suivis."""
         process_map = self._dm.get_process_map()
         tracked = set(process_map.keys())
-        for p in psutil.process_iter(["name", "exe"]):
-            try:
-                name = p.info["name"]
-                exe = p.info["exe"] or ""
-                if not name or not exe:
-                    continue
-                name_lower = name.lower()
-                if name_lower in tracked or name_lower in self._suggested:
-                    continue
-                if any(d in exe.lower() for d in _GAME_DIRS):
-                    self._suggested.add(name_lower)
-                    self._on_suggestion(name, exe)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
 
-    def _check(self):
+        for name_lower, exe in running.items():
+            if name_lower in prev_procs:
+                continue
+            if name_lower in tracked or name_lower in self._suggested:
+                continue
+            if not exe:
+                continue
+            game_name = self._known_games.lookup(exe)
+            if game_name:
+                self._suggested.add(name_lower)
+                self._on_suggestion(game_name, exe)
+
+    def _check(self, running: dict):
         process_map = self._dm.get_process_map()
         if not process_map:
             return
-
-        running = _get_processes()
 
         with self._lock:
             # Jeux nouvellement lancés

@@ -9,15 +9,6 @@ from icon_cache import get_game_icon
 from tracker import ProcessTracker
 from utils import format_duration
 
-_CARD_W = 162
-_CARD_H = 224
-
-_CARD_COLORS = [
-    "#3b2f6e", "#1b4878", "#1a5c3a",
-    "#6b3a1a", "#5c1a3a", "#1a3a5c",
-    "#4a2a1a", "#2a4a1a", "#4a3a1a",
-]
-
 # Fixed column widths keep headers and rows aligned
 _COL_TIME_W   = 130
 _COL_STATUS_W = 108
@@ -25,7 +16,6 @@ _COL_MENU_W   = 28   # largeur du bouton ⋮
 _COL_LAST_W   = 120  # largeur colonne "Dernier lancement"
 
 _LIST_ICON = 28   # icon size in list rows
-_CARD_ICON = 28   # icon size in card info panel
 
 _ARCHIVE_DAYS = 30   # jours sans session → section Archivés
 
@@ -67,9 +57,6 @@ def _format_last_played(sessions: list) -> str:
         return f"il y a {days // 30} mois"
     return f"{last.day} {_MONTHS_FR[last.month - 1]} {last.year}"
 
-
-def _game_color(name: str) -> str:
-    return _CARD_COLORS[abs(hash(name)) % len(_CARD_COLORS)]
 
 
 class _ScrollFrame:
@@ -144,16 +131,12 @@ class GamesTab:
         self._dm = dm
         self._tracker = tracker
         self._parent = parent
-        self._view = "list"
         self._sort_key = "name"
         self._sort_asc = True
         self._rows: dict = {}
         self._rows_all: dict = {}
-        self._cards: dict = {}
-        self._cards_all: dict = {}
         self._last_names: set = set()
         self._last_archived: frozenset = frozenset()
-        self._last_cols = -1
         self._icon_gen = 0
 
         self._build(parent)
@@ -162,87 +145,33 @@ class GamesTab:
     # ── Construction ──────────────────────────────────────────────────────────
 
     def _build(self, parent):
-        # Toolbar — tk.Frame: no Canvas, no _draw() on resize
         tb = tk.Frame(parent, bg=_BG)
         tb.pack(fill="x", padx=14, pady=(14, 8))
 
         ctk.CTkLabel(
-            tb, text="Mes jeux récents",
+            tb, text="Ma bibliothèque",
             font=ctk.CTkFont("Segoe UI", 22, "bold"),
             text_color="#cdd6f4",
             fg_color=_BG,
         ).pack(side="left")
 
-        right = tk.Frame(tb, bg=_BG)
-        right.pack(side="right")
-
-        # Sort controls (grid view only)
-        self._sort_frame = tk.Frame(right, bg=_BG)
-        self._sort_frame.pack(side="left", padx=(0, 8))
-
-        self._sort_opt = ctk.CTkOptionMenu(
-            self._sort_frame,
-            values=["Nom", "Temps total", "Récemment joué"],
-            font=ctk.CTkFont("Segoe UI", 14),
-            fg_color="#313244", button_color="#45475a",
-            dropdown_fg_color="#1e1e2e", text_color="#cdd6f4",
-            width=165, height=40,
-            command=self._on_sort_change,
-        )
-        self._sort_opt.set("Nom")
-        self._sort_opt.pack(side="left", padx=(0, 5))
-
-        self._dir_btn = ctk.CTkButton(
-            self._sort_frame, text="↑",
-            font=ctk.CTkFont("Segoe UI", 16),
-            width=40, height=40,
-            fg_color="#313244", hover_color="#45475a",
-            text_color="#a6adc8",
-            command=self._toggle_dir,
-        )
-        self._dir_btn.pack(side="left")
-
-        # View toggle
-        self._list_btn = ctk.CTkButton(
-            right, text="☰",
-            font=ctk.CTkFont("Segoe UI", 18),
-            width=42, height=40,
-            fg_color="#89b4fa", text_color="#11111b",
-            hover_color="#74c7ec",
-            command=self._set_list_view,
-        )
-        self._list_btn.pack(side="left", padx=(0, 4))
-
-        self._grid_btn = ctk.CTkButton(
-            right, text="⊞",
-            font=ctk.CTkFont("Segoe UI", 18),
-            width=42, height=40,
-            fg_color="#313244", text_color="#cdd6f4",
-            hover_color="#45475a",
-            command=self._set_grid_view,
-        )
-        self._grid_btn.pack(side="left", padx=(0, 14))
-
         ctk.CTkButton(
-            right, text="+ Ajouter",
+            tb, text="+ Ajouter",
             font=ctk.CTkFont("Segoe UI", 14),
             fg_color="#a6e3a1", hover_color="#94e2d5",
             text_color="#11111b", corner_radius=8,
             height=40, width=120,
             command=self._open_add,
-        ).pack(side="left")
+        ).pack(side="right")
 
         self._hdr_name = None
         self._hdr_time = None
         self._hdr_last = None
 
-        # Content area — tk.Frame: no Canvas overhead
         self._content = tk.Frame(parent, bg=_BG)
         self._content.pack(fill="both", expand=True, padx=14, pady=(0, 10))
 
-        # _ScrollFrame replaces CTkScrollableFrame — zero CTk canvas redraws on resize
         self._list_scroll = _ScrollFrame(self._content, bg=_BG)
-        self._grid_scroll = _ScrollFrame(self._content, bg=_BG)
 
         self._empty_lbl = ctk.CTkLabel(
             self._content,
@@ -252,64 +181,19 @@ class GamesTab:
             fg_color=_BG,
         )
 
-        # Default: list view
-        self._sort_frame.pack_forget()
         self._list_scroll.pack(fill="both", expand=True)
-
-    # ── View switching ─────────────────────────────────────────────────────────
-
-    def _set_list_view(self):
-        self._view = "list"
-        self._list_btn.configure(fg_color="#89b4fa", text_color="#11111b")
-        self._grid_btn.configure(fg_color="#313244", text_color="#cdd6f4")
-        self._sort_frame.pack_forget()
-        self._refresh_content()
-
-    def _set_grid_view(self):
-        self._view = "grid"
-        self._grid_btn.configure(fg_color="#89b4fa", text_color="#11111b")
-        self._list_btn.configure(fg_color="#313244", text_color="#cdd6f4")
-        self._sort_frame.pack(side="left", padx=(0, 8))
-        self._refresh_content()
-        # Rebuild once layout has settled (winfo_width returns real value)
-        self._parent.winfo_toplevel().after(60, self._check_grid_cols)
-
-    def _check_grid_cols(self):
-        if self._view != "grid":
-            return
-        if self._cols() != self._last_cols:
-            games = self._dm.get_games()
-            if games:
-                self._rebuild_grid(games)
-                self._update_grid(games, self._tracker.get_active())
 
     def _refresh_content(self):
         self._list_scroll.pack_forget()
-        self._grid_scroll.pack_forget()
         self._empty_lbl.pack_forget()
 
         if not self._dm.get_games():
             self._empty_lbl.pack(expand=True)
             return
 
-        if self._view == "list":
-            self._list_scroll.pack(fill="both", expand=True)
-        else:
-            self._grid_scroll.pack(fill="both", expand=True)
+        self._list_scroll.pack(fill="both", expand=True)
 
     # ── Sorting ────────────────────────────────────────────────────────────────
-
-    def _on_sort_change(self, value: str):
-        mapping = {"Nom": ("name", True), "Temps total": ("time", False), "Récemment joué": ("recent", False)}
-        self._sort_key, self._sort_asc = mapping.get(value, ("name", True))
-        self._dir_btn.configure(text="↑" if self._sort_asc else "↓")
-        self._force_rebuild()
-
-    def _toggle_dir(self):
-        self._sort_asc = not self._sort_asc
-        self._dir_btn.configure(text="↑" if self._sort_asc else "↓")
-        self._update_header_labels()
-        self._force_rebuild()
 
     def _sort_by(self, key: str):
         if self._sort_key == key:
@@ -317,9 +201,6 @@ class GamesTab:
         else:
             self._sort_key = key
             self._sort_asc = key == "name"
-            labels = {"name": "Nom", "time": "Temps total", "recent": "Récemment joué"}
-            self._sort_opt.set(labels.get(key, "Nom"))
-        self._dir_btn.configure(text="↑" if self._sort_asc else "↓")
         self._update_header_labels()
         self._force_rebuild()
 
@@ -427,30 +308,21 @@ class GamesTab:
 
     def _force_rebuild(self):
         self._last_names = set()
-        self._last_cols = -1
         self.refresh()
 
     def refresh(self):
         games = self._dm.get_games()
         active = self._tracker.get_active()
         current_names = set(games.keys())
-
         recent_names = frozenset(n for n, _ in self._recent_games())
 
         if current_names != self._last_names or recent_names != self._last_archived:
             self._last_names = current_names
             self._last_archived = recent_names
             self._rebuild_list(games)
-            self._last_cols = -1
-            if self._view == "grid":
-                self._rebuild_grid(games)
             self._refresh_content()
-        elif self._view == "grid" and self._cols() != self._last_cols:
-            self._rebuild_grid(games)
 
         self._update_list(games, active)
-        if self._view == "grid":
-            self._update_grid(games, active)
 
     # ── List view ──────────────────────────────────────────────────────────────
 
@@ -469,7 +341,7 @@ class GamesTab:
                 icon_queue.append((exe, icon_lbl, name))
 
         # ── Mes jeux (tous les jeux, triés par préférence, temps statique)
-        self._add_section_header(self._list_scroll.inner, "Mes jeux")
+        self._add_section_header(self._list_scroll.inner, "Ma bibliothèque")
         self._build_list_headers(self._list_scroll.inner)
         for name, data in self._sorted_games():
             icon_lbl = self._add_list_row(name, data, static=True)
@@ -601,148 +473,6 @@ class GamesTab:
                     else:
                         row["status"].config(text="—", fg="#45475a")
                         row["row"].config(highlightbackground=row["_border"])
-
-    # ── Grid view ──────────────────────────────────────────────────────────────
-
-    def _cols(self) -> int:
-        w = self._grid_scroll.winfo_width()
-        if w < 100:
-            w = 900
-        return max(2, (w - 20) // (_CARD_W + 16))
-
-    def _rebuild_grid(self, games: dict):
-        for w in self._grid_scroll.winfo_children():
-            w.destroy()
-        self._cards = {}
-        self._cards_all = {}
-
-        cols = self._cols()
-        self._last_cols = cols
-        icon_queue: list = []
-
-        # ── Mes jeux récents (live, toujours triés par date) ─────────────
-        row_frame = None
-        for i, (name, data) in enumerate(self._recent_games()):
-            if i % cols == 0:
-                row_frame = tk.Frame(self._grid_scroll.inner, bg=_BG)
-                row_frame.pack(anchor="w", pady=6, padx=4)
-            icon_lbl = self._make_card(row_frame, name, data, static=False)
-            exe = data.get("exe_path", "")
-            if exe:
-                icon_queue.append((exe, icon_lbl, name))
-
-        # ── Mes jeux (tous, statique) ─────────────────────────────────────
-        self._add_section_header(self._grid_scroll.inner, "Mes jeux")
-        row_frame = None
-        for i, (name, data) in enumerate(self._sorted_games()):
-            if i % cols == 0:
-                row_frame = tk.Frame(self._grid_scroll.inner, bg=_BG)
-                row_frame.pack(anchor="w", pady=6, padx=4)
-            icon_lbl = self._make_card(row_frame, name, data, static=True)
-            exe = data.get("exe_path", "")
-            if exe:
-                icon_queue.append((exe, icon_lbl, name))
-
-        if icon_queue:
-            self._load_icons(icon_queue, _CARD_ICON)
-
-    def _make_card(self, parent, name: str, data: dict, static: bool = False) -> ctk.CTkLabel:
-        color = _game_color(name)
-        border_color = "#252535" if static else "#45475a"
-        name_color   = "#6c7086" if static else "#cdd6f4"
-
-        card = ctk.CTkFrame(
-            parent, width=_CARD_W, height=_CARD_H,
-            fg_color=color, corner_radius=12,
-            border_width=1, border_color=border_color,
-        )
-        card.pack(side="left", padx=6)
-        card.pack_propagate(False)
-
-        # Cover — letter initial
-        cover = ctk.CTkFrame(card, fg_color=color, corner_radius=12)
-        cover.place(x=0, y=0, relwidth=1, relheight=0.57)
-
-        ctk.CTkLabel(
-            cover,
-            text=name[0].upper() if name else "?",
-            font=ctk.CTkFont("Segoe UI", 58, "bold"),
-            text_color="white", fg_color="transparent",
-        ).place(relx=0.5, rely=0.5, anchor="center")
-
-        # Info panel
-        info = ctk.CTkFrame(
-            card, fg_color="#1e1e2e", corner_radius=0,
-            height=int(_CARD_H * 0.43),
-        )
-        info.place(x=0, rely=0.57, relwidth=1, relheight=0.43)
-        info.pack_propagate(False)
-
-        # Icon + name row
-        name_row = ctk.CTkFrame(info, fg_color="transparent")
-        name_row.pack(fill="x", padx=8, pady=(8, 2))
-
-        icon_lbl = ctk.CTkLabel(
-            name_row, text="", width=_CARD_ICON, height=_CARD_ICON,
-        )
-        icon_lbl.pack(side="left", padx=(0, 6))
-
-        name_lbl = ctk.CTkLabel(
-            name_row, text=name,
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            text_color=name_color, anchor="w",
-            wraplength=_CARD_W - _CARD_ICON - 30,
-        )
-        name_lbl.pack(side="left", fill="x", expand=True)
-
-        time_lbl = ctk.CTkLabel(
-            info, text=format_duration(data["total_seconds"]),
-            font=ctk.CTkFont("Segoe UI", 12),
-            text_color="#a6adc8", anchor="w",
-        )
-        time_lbl.pack(anchor="w", padx=8)
-
-        status_lbl = ctk.CTkLabel(
-            info, text="",
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            text_color="#a6e3a1", anchor="w",
-        )
-        status_lbl.pack(anchor="w", padx=8)
-
-        for w in (card, cover, info, name_row, icon_lbl, name_lbl, time_lbl, status_lbl):
-            w.bind("<Button-3>", lambda e, n=name: self._context_menu(e, n))
-
-        card_dict = self._cards_all if static else self._cards
-        card_dict[name] = {
-            "frame": card, "time": time_lbl, "status": status_lbl,
-            "_active": None, "_time_str": "",
-        }
-        return icon_lbl
-
-    def _update_grid(self, games: dict, active: dict):
-        for name, data in games.items():
-            if name not in self._cards:
-                continue
-            c = self._cards[name]
-            total = data["total_seconds"]
-            in_active = name in active
-            if in_active:
-                elapsed = int((datetime.now() - active[name]).total_seconds())
-                total += elapsed
-
-            time_str = format_duration(total)
-            if time_str != c["_time_str"]:
-                c["time"].configure(text=time_str)
-                c["_time_str"] = time_str
-
-            if in_active != c["_active"]:
-                c["_active"] = in_active
-                if in_active:
-                    c["status"].configure(text="● EN JEU")
-                    c["frame"].configure(border_color="#a6e3a1", border_width=2)
-                else:
-                    c["status"].configure(text="")
-                    c["frame"].configure(border_color="#45475a", border_width=1)
 
     # ── Icon loading ───────────────────────────────────────────────────────────
 
