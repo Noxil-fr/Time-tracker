@@ -48,29 +48,20 @@ class MainWindow:
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self):
-        # ── Header — tk.Frame avoids per-pixel Canvas redraw ──────────────────
-        header = tk.Frame(self._root, height=54, bg=_BG)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        ctk.CTkLabel(
-            header, text="⏱  Time Tracker",
-            font=ctk.CTkFont("Segoe UI", 18, "bold"),
-            text_color="#cdd6f4",
-            fg_color=_BG,          # explicit so CTkLabel doesn't guess parent bg
-        ).pack(side="left", padx=20)
-
-        self._status_label = ctk.CTkLabel(
-            header, text="",
-            font=ctk.CTkFont("Segoe UI", 13),
-            text_color="#a6e3a1",
-            fg_color=_BG,
-        )
-        self._status_label.pack(side="right", padx=20)
-
         # ── Tab bar ───────────────────────────────────────────────────────────
         tab_bar = tk.Frame(self._root, bg=_BG)
         tab_bar.pack(fill="x")
+
+        # Bouton "+ Ajouter" à droite de la barre d'onglets
+        self._add_btn = ctk.CTkButton(
+            tab_bar, text="+ Ajouter",
+            font=ctk.CTkFont("Segoe UI", 13),
+            fg_color="#a6e3a1", hover_color="#94e2d5",
+            text_color="#11111b", corner_radius=8,
+            height=36, width=110,
+            command=lambda: self._games_tab._open_add(),
+        )
+        self._add_btn.pack(side="right", padx=14, pady=10)
 
         btn_row = tk.Frame(tab_bar, bg=_BG)
         btn_row.pack(side="left", padx=14, pady=(10, 0))
@@ -105,13 +96,16 @@ class MainWindow:
         # ── Content area ——————————————————————————————————————————————————————
         content = tk.Frame(self._root, bg=_BG)
         content.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        content.grid_rowconfigure(0, weight=1)
+        content.grid_columnconfigure(0, weight=1)
 
         for name, _ in _TABS:
             frame = tk.Frame(content, bg=_BG)
+            frame.grid(row=0, column=0, sticky="nsew")
             self._tab_frames[name] = frame
 
         # Activate first tab
-        self._tab_frames["Jeux"].pack(fill="both", expand=True)
+        self._tab_frames["Jeux"].tkraise()
         self._tab_btns["Jeux"].configure(fg_color="#1e1e2e", text_color="#cdd6f4")
         self._tab_indicators["Jeux"].configure(fg_color="#89b4fa")
 
@@ -129,28 +123,28 @@ class MainWindow:
             fg_color="transparent", text_color="#6c7086"
         )
         self._tab_indicators[self._current_tab].configure(fg_color="transparent")
-        self._tab_frames[self._current_tab].pack_forget()
 
         self._current_tab = name
         self._tab_btns[name].configure(fg_color="#1e1e2e", text_color="#cdd6f4")
         self._tab_indicators[name].configure(fg_color="#89b4fa")
-        self._tab_frames[name].pack(fill="both", expand=True)
-
         if name == "Historique":
             self._history_tab.refresh()
         elif name == "Statistiques":
             self._stats_tab.refresh()
 
+        self._tab_frames[name].tkraise()
+
     # ── Tracker callbacks ──────────────────────────────────────────────────────
 
-    def _on_game_suggestion(self, proc_name: str, exe_path: str):
-        self._root.after(0, lambda: self._show_suggestion(proc_name, exe_path))
+    def _on_game_suggestion(self, game_name: str, proc_name: str, exe_path: str):
+        self._root.after(0, lambda: self._show_suggestion(game_name, proc_name, exe_path))
 
-    def _show_suggestion(self, proc_name: str, exe_path: str):
-        from ui.add_game_dialog import AddGameDialog
-        def _open():
-            AddGameDialog(self._root, self._dm, self._tracker, preselect=(proc_name, exe_path))
-        self._notifier.show_suggestion(proc_name, exe_path, _open)
+    def _show_suggestion(self, game_name: str, proc_name: str, exe_path: str):
+        def _add():
+            if not self._dm.game_exists(game_name):
+                self._dm.add_game(game_name, proc_name, exe_path)
+                self._games_tab._force_rebuild()
+        self._notifier.show_suggestion(game_name, exe_path, _add)
 
     def _on_game_start(self, name: str):
         self._notifier.show(name, "Suivi démarré")
@@ -175,16 +169,7 @@ class MainWindow:
 
     def _refresh_loop(self):
         self._games_tab.refresh()
-        self._update_status()
         self._root.after(1000, self._refresh_loop)
-
-    def _update_status(self):
-        active = self._tracker.get_active()
-        if active:
-            names = ", ".join(active.keys())
-            self._status_label.configure(text=f"En jeu : {names}")
-        else:
-            self._status_label.configure(text="")
 
     def set_hide_on_close(self, hide_fn):
         """Remplace la destruction par un masquage vers le tray."""

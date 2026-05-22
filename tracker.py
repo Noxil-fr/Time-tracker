@@ -27,7 +27,7 @@ class ProcessTracker:
         data_manager,
         on_game_start: Callable[[str], None],
         on_game_stop: Callable[[str, datetime, datetime], None],
-        on_suggestion: Callable[[str, str], None] | None = None,
+        on_suggestion: Callable[[str, str, str], None] | None = None,
     ):
         self._dm = data_manager
         self._on_start = on_game_start
@@ -125,9 +125,9 @@ class ProcessTracker:
             if not exe:
                 continue
             game_name = self._known_games.lookup(exe)
-            if game_name:
+            if game_name and game_name not in self._dm.get_games():
                 self._suggested.add(name_lower)
-                self._on_suggestion(game_name, exe)
+                self._on_suggestion(game_name, name_lower, exe)
 
     def _check(self, running: dict):
         process_map = self._dm.get_process_map()

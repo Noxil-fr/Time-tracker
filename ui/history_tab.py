@@ -32,6 +32,7 @@ class HistoryTab:
         self._custom_start: datetime | None = None
         self._custom_end:   datetime | None = None
         self._game_filter:  str | None = None
+        self._last_hash: int | None = None
 
         self._build(parent)
         self.refresh()
@@ -268,6 +269,11 @@ class HistoryTab:
         if self._game_filter and self._game_filter not in games:
             self._game_filter = None
             self._game_sel.set("Tous les jeux")
+        # Ne reconstruit que si les données ont changé
+        h = sum(len(d.get("sessions", [])) for d in games.values())
+        if h == self._last_hash:
+            return
+        self._last_hash = h
         self._render()
 
     def _render(self):
