@@ -9,7 +9,6 @@ import ctypes
 import ctypes.wintypes as wintypes
 from pathlib import Path
 
-import customtkinter as ctk
 from PIL import Image
 
 ICON_DIR = Path(__file__).parent / "data" / "icons"
@@ -59,16 +58,23 @@ def get_game_icon(game_name: str, exe_path: str, size: int) -> Image.Image | Non
     return img
 
 
+def rename_icon(old_name: str, new_name: str) -> None:
+    """Rename disk file and update memory cache when a game is renamed."""
+    old_path = ICON_DIR / (_safe_filename(old_name) + ".png")
+    new_path = ICON_DIR / (_safe_filename(new_name) + ".png")
+    if old_path.exists() and not new_path.exists():
+        try:
+            old_path.rename(new_path)
+        except Exception:
+            pass
+    for key in list(_mem_cache.keys()):
+        if key[0] == old_name:
+            _mem_cache[(new_name, key[1])] = _mem_cache.pop(key)
+
+
 def get_pil_icon(exe_path: str, size: int = 24) -> Image.Image | None:
     """Extraction directe depuis l'exe, sans cache disque (compat)."""
     return _extract_from_exe(exe_path, size)
-
-
-def get_ctk_icon(exe_path: str, size: int = 24) -> ctk.CTkImage | None:
-    img = get_pil_icon(exe_path, size)
-    if img is None:
-        return None
-    return ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
 
 
 def _extract_from_exe(exe_path: str, size: int) -> Image.Image | None:

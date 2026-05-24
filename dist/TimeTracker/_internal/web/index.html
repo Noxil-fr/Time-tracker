@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Time Tracker</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── Barre d'onglets ─────────────────────────────────────────────── -->
+    <header id="tabbar">
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="games">🎮 Jeux</button>
+        <button class="tab-btn" data-tab="history">📅 Historique</button>
+        <button class="tab-btn" data-tab="stats">📊 Statistiques</button>
+      </nav>
+      <button id="btn-add" class="btn-green">+ Ajouter</button>
+    </header>
+
+    <!-- ── Contenu ────────────────────────────────────────────────────── -->
+    <main id="content">
+
+      <!-- Jeux -->
+      <div id="tab-games" class="tab-pane active">
+        <div id="games-list"></div>
+      </div>
+
+      <!-- Historique -->
+      <div id="tab-history" class="tab-pane">
+        <div id="history-top">
+          <h2>Historique</h2>
+          <select id="history-game-filter"><option value="">Tous les jeux</option></select>
+        </div>
+        <div id="history-controls">
+          <div class="mode-btns">
+            <button class="mode-btn active" data-mode="day">Jour</button>
+            <button class="mode-btn" data-mode="week">Semaine</button>
+            <button class="mode-btn" data-mode="custom">Personnalisé</button>
+          </div>
+          <div id="history-nav"></div>
+        </div>
+        <div id="history-list"></div>
+      </div>
+
+      <!-- Statistiques -->
+      <div id="tab-stats" class="tab-pane">
+        <div id="stats-top">
+          <h2>Statistiques</h2>
+          <div class="period-btns">
+            <button class="period-btn active" data-period="7">7 jours</button>
+            <button class="period-btn" data-period="30">30 jours</button>
+            <button class="period-btn" data-period="90">3 mois</button>
+            <button class="period-btn" data-period="custom">Personnalisé</button>
+          </div>
+        </div>
+        <div id="stats-custom" class="hidden">
+          <label>Du <input type="date" id="stats-start"></label>
+          <label>au <input type="date" id="stats-end"></label>
+          <button id="stats-apply" class="btn-blue">Appliquer</button>
+        </div>
+        <div id="chart-area">
+          <div id="chart-wrap"><canvas id="donut"></canvas></div>
+          <div id="chart-legend"></div>
+        </div>
+        <p id="stats-empty" class="empty-msg hidden">Aucune donnée pour cette période.</p>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ── Modal overlay ────────────────────────────────────────────────── -->
+  <div id="overlay" class="hidden" id="overlay">
+
+    <!-- Ajouter un jeu -->
+    <div id="modal-add" class="modal hidden">
+      <div class="modal-header">
+        <span class="modal-title">Ajouter un jeu</span>
+        <button class="modal-close">✕</button>
+      </div>
+      <div class="modal-search-wrap">
+        <span class="search-icon">⌕</span>
+        <input id="proc-search" type="text" placeholder="Rechercher un processus…" autocomplete="off">
+        <button id="btn-detect">⟳ Détecter</button>
+      </div>
+      <div id="proc-chips" class="hidden">
+        <button class="chip active" data-filter="all">Tous</button>
+        <button class="chip" data-filter="new">Nouveaux (0)</button>
+      </div>
+      <div id="proc-list"></div>
+      <div class="modal-footer">
+        <div class="name-row">
+          <label class="name-label">Nom du jeu <span>— modifiable</span></label>
+          <input id="game-name-input" type="text" placeholder="Ex : Cyberpunk 2077" autocomplete="off">
+        </div>
+        <p id="add-error" class="error-msg"></p>
+        <div class="modal-btns">
+          <button class="btn-muted modal-cancel">Annuler</button>
+          <button id="btn-confirm-add" class="btn-green" disabled>Ajouter →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Renommer -->
+    <div id="modal-rename" class="modal hidden">
+      <div class="modal-header">
+        <span class="modal-title">Renommer le jeu</span>
+        <button class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <input id="rename-input" type="text" autocomplete="off">
+        <p id="rename-error" class="error-msg"></p>
+      </div>
+      <div class="modal-btns pad">
+        <button class="btn-muted modal-cancel">Annuler</button>
+        <button id="btn-confirm-rename" class="btn-blue">Renommer</button>
+      </div>
+    </div>
+
+    <!-- Supprimer -->
+    <div id="modal-delete" class="modal hidden">
+      <div class="modal-header">
+        <span class="modal-title">Supprimer</span>
+        <button class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-msg"></p>
+        <p class="text-sub">Toutes les sessions enregistrées seront perdues.</p>
+      </div>
+      <div class="modal-btns pad">
+        <button class="btn-muted modal-cancel">Annuler</button>
+        <button id="btn-confirm-delete" class="btn-red">Supprimer</button>
+      </div>
+    </div>
+
+    <!-- Session rétroactive -->
+    <div id="modal-retro" class="modal hidden">
+      <div class="modal-header">
+        <span class="modal-title">Session en cours détectée</span>
+        <button class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="retro-msg" class="text-blue"></p>
+        <p class="text-sub">Voulez-vous récupérer ce temps dans votre historique ?</p>
+      </div>
+      <div class="modal-btns pad">
+        <button class="btn-muted modal-cancel">Non, ignorer</button>
+        <button id="btn-confirm-retro" class="btn-green">Oui, récupérer</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Toasts ────────────────────────────────────────────────────────── -->
+  <div id="toasts"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

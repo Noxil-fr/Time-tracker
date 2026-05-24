@@ -1,50 +1,19 @@
 import ctypes
+import os
 import sys
 
-import customtkinter as ctk
+import webview
 
+from api import Api
+from data_manager import DataManager
+from sync import SyncManager
+from tracker import ProcessTracker
 from tray import TrayManager, acquire_single_instance_lock, set_autostart, is_autostart_enabled, _is_frozen
-from ui.main_window import MainWindow
 
 
-def _patch_ctk_draw():
-    """
-    Debounce _draw() on every CTk widget subclass to cap redraws at ~60 fps.
-
-    Each CTk widget overrides _draw() and calls it on every <Configure> event
-    (one per resize pixel, 300+ /sec on Windows). This patch replaces each
-    class's own _draw with a version that coalesces rapid calls via after(16).
-    CTkBaseClass._draw alone is never reached because subclasses override it.
-    """
-    def _make_debounced(orig_fn):
-        def _debounced(self, no_color_updates: bool = False):
-            if getattr(self, "_draw_pending", False):
-                if not no_color_updates:
-                    self._draw_nc = False
-                return
-            self._draw_pending = True
-            self._draw_nc = no_color_updates
-
-            def _execute():
-                self._draw_pending = False
-                if self.winfo_exists():
-                    orig_fn(self, self._draw_nc)
-
-            try:
-                self.after(16, _execute)
-            except Exception:
-                orig_fn(self, no_color_updates)
-
-        _debounced._ctk_patched = True
-        return _debounced
-
-    def _patch_class(cls):
-        if "_draw" in cls.__dict__ and not getattr(cls.__dict__["_draw"], "_ctk_patched", False):
-            cls._draw = _make_debounced(cls.__dict__["_draw"])
-        for sub in cls.__subclasses__():
-            _patch_class(sub)
-
-    _patch_class(ctk.CTkBaseClass)
+def _resource_path(relative: str) -> str:
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
 
 
 def main():
@@ -61,28 +30,57 @@ def main():
 
     start_hidden = "--minimized" in sys.argv
 
-    _patch_ctk_draw()
-    ctk.set_appearance_mode("dark")
-    ctk.set_default_color_theme("blue")
+    dm      = DataManager()
+    sync    = SyncManager(dm)
+    api_obj = Api(dm, sync)
 
-    root = ctk.CTk()
-    win  = MainWindow(root)
+    tracker = ProcessTracker(
+        dm,
+        on_game_start = api_obj.on_game_start,
+        on_game_stop  = api_obj.on_game_stop,
+        on_suggestion = api_obj.on_suggestion,
+    )
+    api_obj.set_tracker(tracker)
 
-    tray = TrayManager(root, quit_callback=win.quit)
-    tray.start()
+    window = webview.create_window(
+        "Time Tracker",
+        url              = _resource_path("web/index.html"),
+        js_api           = api_obj,
+        width            = 700,
+        height           = 950,
+        min_size         = (600, 500),
+        background_color = "#11111b",
+    )
 
-    # Masquer la fenêtre via le tray plutôt que la fermer
-    win.set_hide_on_close(tray.hide_window)
+    _quitting = [False]
 
-    # Démarrage au lancement Windows : fenêtre cachée dès le départ
-    if start_hidden:
-        root.withdraw()
+    def _quit():
+        _quitting[0] = True
+        window.destroy()
 
-    # Activer le démarrage automatique si on tourne en .exe et que ce n'est pas déjà fait
-    if _is_frozen() and not is_autostart_enabled():
-        set_autostart(True)
+    tray = TrayManager(window, quit_callback=_quit)
 
-    root.mainloop()
+    def setup(w):
+        def _on_closing():
+            if _quitting[0]:
+                return True  # laisser la fenêtre se fermer
+            w.hide()
+            return False  # bloquer la fermeture, réduire dans le tray
+
+        w.events.closing += _on_closing
+
+        tracker.start()
+        tray.start()
+        api_obj.set_tray(tray)
+
+        if start_hidden:
+            w.hide()
+
+        if _is_frozen() and not is_autostart_enabled():
+            set_autostart(True)
+
+    webview.start(setup, window)
+    tracker.stop()
 
 
 if __name__ == "__main__":

@@ -1,19 +1,72 @@
 {
   "games": {
-    "Dashboard": {
-      "process": "Dashboard.exe",
-      "total_seconds": 0,
-      "sessions": [],
-      "exe_path": "C:\\Program Files\\CyberGhost 8\\Dashboard.exe"
-    },
     "Football Manager 26": {
       "process": "fm.exe",
-      "total_seconds": 522,
+      "total_seconds": 7194,
       "sessions": [
         {
           "start": "2026-05-19T22:01:02.832241",
           "end": "2026-05-19T22:09:45.555683",
           "duration": 522
+        },
+        {
+          "start": "2026-05-21T10:19:22.298151",
+          "end": "2026-05-21T10:24:22.298170",
+          "duration": 300,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T19:51:38.826829",
+          "end": "2026-05-21T19:52:36.916166",
+          "duration": 58,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T19:52:41.347150",
+          "end": "2026-05-21T19:53:39.429740",
+          "duration": 58,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T19:52:41.347150",
+          "end": "2026-05-21T19:57:39.767873",
+          "duration": 298,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T19:57:43.293699",
+          "end": "2026-05-21T19:58:41.391640",
+          "duration": 58,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T19:54:32.368364",
+          "end": "2026-05-21T19:59:30.809029",
+          "duration": 298,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T19:59:11.292584",
+          "end": "2026-05-21T20:01:09.476851",
+          "duration": 118,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T20:01:22.116165",
+          "end": "2026-05-21T20:02:20.204115",
+          "duration": 58,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T20:02:30.274216",
+          "end": "2026-05-21T20:04:29.015087",
+          "duration": 118,
+          "recovered": true
+        },
+        {
+          "start": "2026-05-21T20:04:31.476608",
+          "end": "2026-05-21T21:33:00.139961",
+          "duration": 5308
         }
       ],
       "exe_path": "E:\\SteamLibrary\\steamapps\\common\\Football Manager 26\\fm.exe"
@@ -48,7 +101,7 @@
     "Cyberpunk 2077": {
       "process": "Cyberpunk2077.exe",
       "exe_path": "",
-      "total_seconds": 97200,
+      "total_seconds": 11700,
       "sessions": [
         {
           "start": "2026-01-10T18:00:00.000000",
@@ -407,6 +460,42 @@
           "start": "2026-02-05T21:00:00.000000",
           "end": "2026-02-06T00:00:00.000000",
           "duration": 10800
+        }
+      ]
+    },
+    "Prison Architect": {
+      "process": "prison architect64.exe",
+      "exe_path": "E:\\SteamLibrary\\steamapps\\common\\Prison Architect\\Prison Architect64.exe",
+      "total_seconds": 14,
+      "sessions": [
+        {
+          "start": "2026-05-21T20:05:38.136971",
+          "end": "2026-05-21T20:05:52.242446",
+          "duration": 14
+        }
+      ]
+    },
+    "Temtem": {
+      "process": "temtem.exe",
+      "exe_path": "E:\\SteamLibrary\\steamapps\\common\\Temtem\\Temtem.exe",
+      "total_seconds": 178,
+      "sessions": [
+        {
+          "start": "2026-05-24T22:45:30.457630",
+          "end": "2026-05-24T22:48:28.714429",
+          "duration": 178
+        }
+      ]
+    },
+    "Where Winds Meet": {
+      "process": "wwm.exe",
+      "exe_path": "D:\\SteamLibrary\\steamapps\\common\\Where Winds Meet\\Engine\\Binaries\\Win64r\\wwm.exe",
+      "total_seconds": 12,
+      "sessions": [
+        {
+          "start": "2026-05-25T00:03:48.173675",
+          "end": "2026-05-25T00:04:00.199879",
+          "duration": 12
         }
       ]
     }
