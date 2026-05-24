@@ -1,6 +1,9 @@
+import ctypes
+import sys
+
 import customtkinter as ctk
 
-from tray import TrayManager, set_autostart, is_autostart_enabled, _is_frozen
+from tray import TrayManager, acquire_single_instance_lock, set_autostart, is_autostart_enabled, _is_frozen
 from ui.main_window import MainWindow
 
 
@@ -45,6 +48,19 @@ def _patch_ctk_draw():
 
 
 def main():
+    # ── Instance unique ───────────────────────────────────────────────────────
+    if not acquire_single_instance_lock():
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "Time Tracker est déjà en cours d'exécution.\n"
+            "Consultez l'icône dans la barre des tâches.",
+            "Time Tracker",
+            0x40,  # MB_ICONINFORMATION
+        )
+        return
+
+    start_hidden = "--minimized" in sys.argv
+
     _patch_ctk_draw()
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
@@ -57,6 +73,10 @@ def main():
 
     # Masquer la fenêtre via le tray plutôt que la fermer
     win.set_hide_on_close(tray.hide_window)
+
+    # Démarrage au lancement Windows : fenêtre cachée dès le départ
+    if start_hidden:
+        root.withdraw()
 
     # Activer le démarrage automatique si on tourne en .exe et que ce n'est pas déjà fait
     if _is_frozen() and not is_autostart_enabled():

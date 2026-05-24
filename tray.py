@@ -1,3 +1,4 @@
+import ctypes
 import math
 import sys
 import winreg
@@ -7,6 +8,18 @@ import pystray
 
 _AUTOSTART_KEY  = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _AUTOSTART_NAME = "TimeTracker"
+_MUTEX_NAME     = "TimeTracker_SingleInstance_Mutex"
+
+
+# ── Instance unique ───────────────────────────────────────────────────────────
+
+def acquire_single_instance_lock() -> bool:
+    """Crée un mutex nommé. Retourne False si une instance tourne déjà."""
+    handle = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
+    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        return False
+    acquire_single_instance_lock._mutex = handle  # garde la référence vivante
+    return True
 
 
 # ── Icône ────────────────────────────────────────────────────────────────────
@@ -45,7 +58,7 @@ def is_autostart_enabled() -> bool:
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY) as k:
             val, _ = winreg.QueryValueEx(k, _AUTOSTART_NAME)
-            return bool(val)
+            return "--minimized" in val
     except OSError:
         return False
 
@@ -58,7 +71,8 @@ def set_autostart(enabled: bool) -> None:
             winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE
         ) as k:
             if enabled:
-                winreg.SetValueEx(k, _AUTOSTART_NAME, 0, winreg.REG_SZ, sys.executable)
+                value = f'"{sys.executable}" --minimized'
+                winreg.SetValueEx(k, _AUTOSTART_NAME, 0, winreg.REG_SZ, value)
             else:
                 try:
                     winreg.DeleteValue(k, _AUTOSTART_NAME)
