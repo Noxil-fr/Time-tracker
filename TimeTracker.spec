@@ -1,13 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_submodules, collect_all
 
-datas = [('C:\\Users\\antlc\\AppData\\Roaming\\Python\\Python314\\site-packages\\customtkinter', 'customtkinter'), ('data', 'data')]
+datas = [
+    ('data', 'data'),
+    ('web', 'web'),
+]
 binaries = []
 hiddenimports = ['winreg']
-hiddenimports += collect_submodules('customtkinter')
+
+# pystray
 tmp_ret = collect_all('pystray')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+# pywebview
+tmp_ret = collect_all('webview')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+hiddenimports += collect_submodules('webview')
 
 
 a = Analysis(
@@ -19,7 +27,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['customtkinter', 'tkinter', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )

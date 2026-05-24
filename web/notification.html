@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --base:     #161616;
+    --surface0: #222222;
+    --surface1: #2a2a2a;
+    --surface2: #383838;
+    --overlay0: #555555;
+    --subtext0: #aaaaaa;
+    --text:     #f0f0f0;
+    --blue:     #4a9eff;
+    --green:    #22c55e;
+    --green-dim:#16a34a;
+    --crust:    #080808;
+    --radius:   8px;
+    --font:     'Segoe UI', system-ui, sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--base); }
+
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--base);
+    border: 1px solid var(--surface1);
+    border-top: 3px solid var(--blue);
+    font-family: var(--font);
+    color: var(--text);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  #wrap.green { border-top-color: var(--green); }
+  #wrap.show  { opacity: 1; transform: none; }
+
+  #top {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 12px 10px;
+    flex: 1;
+  }
+  #dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--blue); flex-shrink: 0; margin-top: 4px;
+  }
+  #wrap.green #dot { background: var(--green); }
+
+  #texts { flex: 1; overflow: hidden; }
+  #title {
+    font: 700 13px var(--font); color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #msg {
+    font: 12px var(--font); color: var(--subtext0);
+    margin-top: 3px; line-height: 1.4;
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+  #close {
+    background: none; border: none; color: var(--overlay0);
+    font-size: 13px; cursor: pointer; padding: 0 2px;
+    line-height: 1; flex-shrink: 0;
+    transition: color .12s;
+  }
+  #close:hover { color: var(--text); }
+
+  #actions {
+    display: none;
+    gap: 8px;
+    padding: 0 12px 12px;
+    justify-content: flex-end;
+  }
+  #actions.visible { display: flex; }
+
+  .btn {
+    border: none; border-radius: var(--radius);
+    font: 600 12px var(--font); padding: 6px 14px;
+    cursor: pointer; transition: background .12s;
+  }
+  .btn-muted  { background: var(--surface1); color: var(--text); }
+  .btn-muted:hover { background: var(--surface2); }
+  .btn-green  { background: var(--green); color: var(--crust); }
+  .btn-green:hover { background: var(--green-dim); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="top">
+    <div id="dot"></div>
+    <div id="texts">
+      <div id="title"></div>
+      <div id="msg"></div>
+    </div>
+    <button id="close" onclick="dismiss()">✕</button>
+  </div>
+  <div id="actions">
+    <button class="btn btn-muted" onclick="dismiss()">Ignorer</button>
+    <button class="btn btn-green" id="btn-add" onclick="addGame()">Ajouter →</button>
+  </div>
+</div>
+
+<script>
+let _sugg = null;
+
+function setContent(title, msg, color, suggestion) {
+  document.getElementById('title').textContent = msg ? title : title;
+  document.getElementById('msg').textContent   = msg || '';
+  const wrap = document.getElementById('wrap');
+  wrap.className = color === 'green' ? 'green' : '';
+  const actions = document.getElementById('actions');
+  if (suggestion) {
+    _sugg = suggestion;
+    actions.classList.add('visible');
+  } else {
+    _sugg = null;
+    actions.classList.remove('visible');
+  }
+  requestAnimationFrame(() => wrap.classList.add('show'));
+}
+
+function dismiss() {
+  document.getElementById('wrap').classList.remove('show');
+  setTimeout(() => window.pywebview.api.dismiss(), 180);
+}
+
+async function addGame() {
+  if (!_sugg) return;
+  document.getElementById('btn-add').textContent = '…';
+  await window.pywebview.api.add_game(_sugg.game_name, _sugg.proc_name, _sugg.exe_path);
+}
+</script>
+</body>
+</html>

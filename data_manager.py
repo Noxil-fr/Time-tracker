@@ -140,10 +140,12 @@ class DataManager:
         self._save()
         return True
 
-    def delete_game(self, name: str):
+    def delete_game(self, name: str) -> bool:
         if name in self._data["games"]:
             del self._data["games"][name]
             self._save()
+            return True
+        return False
 
     def batch_update_exe_paths(self, updates: dict):
         """Persiste {nom: exe_path} pour les jeux sans exe_path. Un seul _save()."""
@@ -162,6 +164,35 @@ class DataManager:
             v["process"].lower(): k
             for k, v in self._data["games"].items()
         }
+
+    def set_games(self, games: dict) -> None:
+        self._data["games"] = games
+        self._save()
+
+    def merge_games(self, remote_games: dict) -> int:
+        """Fusionne les jeux distants dans les données locales (union des sessions).
+        Retourne le nombre de jeux modifiés ou ajoutés."""
+        merged = 0
+        for name, remote in remote_games.items():
+            if name not in self._data["games"]:
+                self._data["games"][name] = remote
+                merged += 1
+            else:
+                local = self._data["games"][name]
+                local_starts = {s["start"] for s in local.get("sessions", [])}
+                added = 0
+                for s in remote.get("sessions", []):
+                    if s["start"] not in local_starts:
+                        local.setdefault("sessions", []).append(s)
+                        added += 1
+                if added:
+                    local["total_seconds"] = sum(
+                        s["duration"] for s in local["sessions"]
+                    )
+                    merged += 1
+        if merged:
+            self._save()
+        return merged
 
     def get_all_sessions_in_range(self, start_date: datetime, end_date: datetime) -> dict:
         """Retourne {nom_jeu: total_secondes} pour la période donnée."""

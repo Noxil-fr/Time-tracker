@@ -7,6 +7,18 @@ import psutil
 
 _CHECKPOINT_INTERVAL = 60   # secondes entre chaque sauvegarde de checkpoint
 
+_HELPER_PROCS = (
+    "unitycrashandler",
+    "crashreportclient",
+    "unrealcefsubprocess",
+    "easyanticheat",
+    "battleye",
+    "be_service",
+    "gamelauncher",
+    "gameoverlayui",
+    "steam_api",
+)
+
 
 def _get_processes() -> dict:
     """Retourne {nom_process.lower(): exe_path} pour tous les processus actifs."""
@@ -34,7 +46,8 @@ class ProcessTracker:
         self._on_stop = on_game_stop
         self._on_suggestion = on_suggestion
         self._active: dict[str, datetime] = {}  # {nom_jeu: heure_debut}
-        self._suggested: set[str] = set()
+        self._suggested: set[str] = set()        # process names déjà suggérés
+        self._suggested_games: set[str] = set()  # game names déjà suggérés
         self._known_games = None
         self._running = False
         self._thread = None
@@ -117,6 +130,9 @@ class ProcessTracker:
         process_map = self._dm.get_process_map()
         tracked = set(process_map.keys())
 
+        # game_name -> (score, proc_name, exe)
+        candidates: dict[str, tuple[int, str, str]] = {}
+
         for name_lower, exe in running.items():
             if name_lower in prev_procs:
                 continue
@@ -124,10 +140,25 @@ class ProcessTracker:
                 continue
             if not exe:
                 continue
+            if any(h in name_lower for h in _HELPER_PROCS):
+                continue
             game_name = self._known_games.lookup(exe)
-            if game_name and game_name not in self._dm.get_games():
-                self._suggested.add(name_lower)
-                self._on_suggestion(game_name, name_lower, exe)
+            if not game_name or game_name in self._dm.get_games():
+                continue
+            if game_name in self._suggested_games:
+                continue
+            # Score par similarité du nom de l'exe avec le nom du jeu
+            stem = name_lower[:-4] if name_lower.endswith(".exe") else name_lower
+            g = "".join(c for c in game_name.lower() if c.isalnum())
+            s = "".join(c for c in stem if c.isalnum())
+            score = 2 if s == g else (1 if g in s or s in g else 0)
+            if score > candidates.get(game_name, (-1, "", ""))[0]:
+                candidates[game_name] = (score, name_lower, exe)
+
+        for game_name, (_, proc_name, exe) in candidates.items():
+            self._suggested.add(proc_name)
+            self._suggested_games.add(game_name)
+            self._on_suggestion(game_name, proc_name, exe)
 
     def _check(self, running: dict):
         process_map = self._dm.get_process_map()
