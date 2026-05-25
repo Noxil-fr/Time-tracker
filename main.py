@@ -2,6 +2,18 @@ import ctypes
 import os
 import sys
 
+# ── Mode sous-processus notification (AVANT tout le reste) ────────────────────
+if len(sys.argv) >= 3 and sys.argv[1] == '--notif-helper':
+    import json
+    from notif_helper import _make_window
+    try:
+        data = json.loads(sys.argv[2])
+        root = _make_window(data)
+        root.mainloop()
+    except Exception:
+        pass
+    sys.exit(0)
+
 # ── Instance unique — AVANT tout import lourd (webview, tracker…) ─────────────
 _MUTEX_NAME = "TimeTracker_SingleInstance_Mutex"
 _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
