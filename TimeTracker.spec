@@ -6,7 +6,7 @@ datas = [
     ('web', 'web'),
 ]
 binaries = []
-hiddenimports = ['winreg']
+hiddenimports = ['winreg', 'notif_helper']
 
 # pystray
 tmp_ret = collect_all('pystray')
@@ -27,7 +27,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['customtkinter', 'tkinter', 'matplotlib'],
+    excludes=['customtkinter', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )

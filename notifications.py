@@ -8,6 +8,7 @@ import threading
 
 
 _HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notif_helper.py")
+_FROZEN = getattr(sys, "frozen", False)
 
 
 class NotificationManager:
@@ -48,8 +49,10 @@ class NotificationManager:
     def _spawn(self, data: dict, suggestion: dict | None) -> None:
         try:
             json_str = json.dumps(data, ensure_ascii=False)
+            cmd = ([sys.executable, '--notif-helper', json_str] if _FROZEN
+                   else [sys.executable, _HELPER, json_str])
             proc = subprocess.Popen(
-                [sys.executable, _HELPER, json_str],
+                cmd,
                 stdout=subprocess.PIPE if suggestion else subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=0x08000000,   # CREATE_NO_WINDOW
