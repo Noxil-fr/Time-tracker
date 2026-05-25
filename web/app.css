@@ -46,6 +46,32 @@ body {
   height: 100vh;
 }
 
+/* ── Bandeau déconnecté ───────────────────────────────────────────────── */
+#offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #7c4a00;
+  color: #ffe0a0;
+  font: 600 13px var(--font);
+  padding: 10px 16px;
+  border-bottom: 2px solid var(--peach);
+  flex-shrink: 0;
+}
+#offline-banner button {
+  margin-left: auto;
+  background: var(--peach);
+  color: var(--crust);
+  border: none;
+  border-radius: var(--radius);
+  font: 700 12px var(--font);
+  padding: 5px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#offline-banner button:hover { background: #c8883a; }
+
 /* ── Tab bar ──────────────────────────────────────────────────────────── */
 #tabbar {
   display: flex;
@@ -297,13 +323,15 @@ body {
   background: rgba(74,158,255,.15); color: var(--blue);
   vertical-align: middle; margin-left: 6px;
 }
-.archive-badge {
-  display: inline-block; font: 600 10px var(--font);
-  padding: 1px 6px; border-radius: 4px;
-  background: rgba(170,170,170,.1); color: var(--subtext0);
-  vertical-align: middle; margin-left: 6px;
+
+/* Temps modifié manuellement */
+.lib-time-edited {
+  font: 500 9px var(--font);
+  color: var(--peach);
+  opacity: .8;
+  text-align: right;
+  margin-top: 3px;
 }
-.archived-row { opacity: .55; }
 
 /* Empty state */
 .empty-msg {
@@ -667,6 +695,23 @@ body {
   cursor: pointer; transition: background .15s;
 }
 
+.f5-hint {
+  font: 12px var(--font);
+  color: var(--subtext0);
+  white-space: nowrap;
+  margin-right: 4px;
+}
+.f5-hint kbd {
+  display: inline-block;
+  font: 600 11px var(--font);
+  background: var(--surface1);
+  border: 1px solid var(--surface2);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--text);
+}
+
 /* ── Bouton compte ────────────────────────────────────────────────────── */
 .btn-account {
   display: flex; align-items: center; justify-content: center;
@@ -692,7 +737,7 @@ body {
 .sync-dot.unknown { background: var(--overlay0); }
 
 /* ── Modal compte ─────────────────────────────────────────────────────── */
-.modal-account { width: 380px; }
+.modal-account { width: 380px; height: 660px; overflow-y: auto; }
 
 .account-tabs {
   display: flex;
@@ -889,6 +934,50 @@ body {
   transition: color .15s;
 }
 .rank-excl-remove:hover { color: var(--red); }
+
+/* Onglet Temps — édition manuelle */
+.time-edit-form {
+  padding: 6px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.time-edit-game-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.time-edit-game-label {
+  font: 600 13px var(--font);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 8px;
+}
+.time-edit-current-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font: 13px var(--font);
+}
+.time-edit-hint { color: var(--subtext0); }
+.time-edit-current-val { color: var(--text); font-weight: 600; }
+.time-edit-input-row {
+  display: flex;
+  gap: 8px;
+}
+.time-edit-input-row input {
+  flex: 1;
+  background: var(--surface0);
+  border: 1px solid var(--surface2);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: 13px var(--font);
+  padding: 7px 10px;
+}
+.time-edit-input-row input:focus { outline: none; border-color: var(--blue); }
 
 /* Inputs dans les onglets de paramètres */
 .stab-pane .account-body input[type=text],
@@ -1108,20 +1197,22 @@ input[type=text], input[type=date] { outline: none; }
   margin-top: 4px;
 }
 
-.card-right {
+.card-meta {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
   margin-left: 8px;
-  text-align: right;
+}
+.card-main .card-rank {
+  width: 52px;
+  text-align: left;
+  flex-shrink: 0;
+  margin-right: 20px;
 }
 .card-footer {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 18px;
-}
-.card-footer .card-rank {
-  flex-shrink: 0;
-  padding-bottom: 3px;
+  align-items: flex-end;
+  height: 3px;
 }
 
 .rank-label {
@@ -1130,8 +1221,8 @@ input[type=text], input[type=date] { outline: none; }
   white-space: nowrap;
   letter-spacing: .02em;
 }
-.card-rank .rank-label {
-  font-size: 14px;
+.card-main .card-rank .rank-label {
+  font-size: 15px;
 }
 .rank-label.rank-top { color: var(--text); }
 .card-bar {
@@ -1146,9 +1237,12 @@ input[type=text], input[type=date] { outline: none; }
   opacity: .45;
 }
 .card-time {
-  font: 400 17px var(--font);
+  font: 600 15px var(--font);
   color: var(--text);
   white-space: nowrap;
+  width: 72px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 /* ── Library rows ─────────────────────────────────────────────────────── */

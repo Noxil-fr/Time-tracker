@@ -3,12 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Time Tracker</title>
+  <title>Time Tracker v1.0</title>
   <link rel="icon" href="data:,">
   <script>document.write('<link rel="stylesheet" href="app.css?v='+Date.now()+'">')</script>
 </head>
 <body>
   <div id="app">
+
+    <!-- ── Bandeau déconnecté ───────────────────────────────────────────── -->
+    <div id="offline-banner" class="hidden">
+      ⚠ Vous n'êtes pas connecté — vos données ne sont pas sauvegardées en ligne.
+      <button id="btn-banner-connect">Se connecter</button>
+    </div>
 
     <!-- ── Barre d'onglets ─────────────────────────────────────────────── -->
     <header id="tabbar">
@@ -17,6 +23,7 @@
         <button class="tab-btn" data-tab="history">📅 Historique</button>
         <button class="tab-btn" data-tab="stats">📊 Statistiques</button>
       </nav>
+      <span class="f5-hint"><kbd>F5</kbd> to refresh</span>
       <button id="btn-account" class="btn-account" title="Paramètres">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
@@ -205,10 +212,11 @@
       </div>
 
       <!-- Section bas : onglets de paramètres -->
-      <div id="settings-section">
+      <div id="settings-section" class="hidden">
         <div class="settings-tabs">
           <button class="settings-tab active" data-stab="steam">Steam</button>
           <button class="settings-tab" data-stab="rank">Classement</button>
+          <button class="settings-tab" data-stab="time">Temps</button>
         </div>
 
         <!-- Onglet Classement -->
@@ -221,6 +229,31 @@
             <button id="btn-rank-excl-add" class="btn-blue btn-sm">Exclure</button>
           </div>
           <div id="rank-excl-list" class="rank-excl-excluded-list"></div>
+        </div>
+
+        <!-- Onglet Temps -->
+        <div id="stab-time" class="stab-pane">
+          <div class="rank-excl-form">
+            <div class="rank-excl-input-wrap">
+              <input id="time-edit-search" type="text" placeholder="Rechercher un jeu…" autocomplete="off">
+              <div id="time-edit-suggestions" class="rank-excl-suggestions hidden"></div>
+            </div>
+          </div>
+          <div id="time-edit-form" class="time-edit-form hidden">
+            <div class="time-edit-game-row">
+              <span id="time-edit-game-label" class="time-edit-game-label"></span>
+              <button id="btn-time-edit-clear" class="btn-sm btn-muted">✕</button>
+            </div>
+            <div class="time-edit-current-row">
+              <span class="time-edit-hint">Temps actuel</span>
+              <span id="time-edit-current" class="time-edit-current-val"></span>
+            </div>
+            <div class="time-edit-input-row">
+              <input id="time-edit-input" type="text" placeholder="ex : 6h 30m, 6:30, 6.5h">
+              <button id="btn-time-edit-save" class="btn-blue btn-sm">Appliquer</button>
+            </div>
+            <p id="time-edit-error" class="account-error"></p>
+          </div>
         </div>
 
         <!-- Onglet Steam -->
