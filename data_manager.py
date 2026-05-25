@@ -1,19 +1,47 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
-DATA_FILE       = Path(__file__).parent / "data" / "games.json"
-CHECKPOINT_FILE = Path(__file__).parent / "data" / "active_sessions.json"
-SETTINGS_FILE   = Path(__file__).parent / "data" / "settings.json"
+_APPDATA_DIR    = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker"
+_LEGACY_DIR     = Path(__file__).parent / "data"
+
+DATA_FILE       = _APPDATA_DIR / "games.json"
+CHECKPOINT_FILE = _APPDATA_DIR / "active_sessions.json"
+SETTINGS_FILE   = _APPDATA_DIR / "settings.json"
 
 _MIN_RECOVERY_SECONDS = 10  # sessions < 10s ignorées à la récupération
 
 
 class DataManager:
     def __init__(self):
-        DATA_FILE.parent.mkdir(exist_ok=True)
+        _APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+        self._migrate_legacy()
         self._data = self._load()
         self._recover_checkpoints()
+
+    def _migrate_legacy(self):
+        """Copie les données de l'ancien emplacement (data/) vers APPDATA si APPDATA est vide."""
+        if DATA_FILE.exists():
+            return
+        import shutil
+        for src, dst in [
+            (_LEGACY_DIR / "games.json",           DATA_FILE),
+            (_LEGACY_DIR / "settings.json",        SETTINGS_FILE),
+        ]:
+            if src.exists():
+                try:
+                    shutil.copy2(src, dst)
+                except Exception:
+                    pass
+        # Icônes
+        legacy_icons = _LEGACY_DIR / "icons"
+        appdata_icons = _APPDATA_DIR / "icons"
+        if legacy_icons.exists() and not appdata_icons.exists():
+            try:
+                shutil.copytree(legacy_icons, appdata_icons)
+            except Exception:
+                pass
 
     def _load(self) -> dict:
         if DATA_FILE.exists():

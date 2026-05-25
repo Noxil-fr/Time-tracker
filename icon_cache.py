@@ -11,7 +11,8 @@ from pathlib import Path
 
 from PIL import Image
 
-ICON_DIR = Path(__file__).parent / "data" / "icons"
+import os
+ICON_DIR = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker" / "icons"
 _SAVE_SIZE = 32   # résolution de sauvegarde sur disque
 
 _mem_cache: dict = {}   # (game_name, size) → Image
