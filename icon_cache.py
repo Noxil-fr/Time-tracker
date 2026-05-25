@@ -72,6 +72,67 @@ def rename_icon(old_name: str, new_name: str) -> None:
             _mem_cache[(new_name, key[1])] = _mem_cache.pop(key)
 
 
+def fetch_steam_icon(game_name: str, appid: int, icon_hash: str, size: int) -> Image.Image | None:
+    """Télécharge l'icône Steam depuis le CDN, met en cache disque + mémoire.
+    Essaie d'abord l'icône hash, puis le header image comme fallback."""
+    import io, urllib.request
+
+    if not appid:
+        return None
+
+    key = (game_name, size)
+    if key in _mem_cache:
+        return _mem_cache[key]
+
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
+    disk_path = ICON_DIR / (_safe_filename(game_name) + ".png")
+
+    if disk_path.exists():
+        try:
+            img = Image.open(disk_path).convert("RGBA")
+            if img.size != (size, size):
+                img = img.resize((size, size), Image.Resampling.LANCZOS)
+            _mem_cache[key] = img
+            return img
+        except Exception:
+            pass
+
+    # Candidats URL : icône hash (32×32) puis header image (460×215, crop carré)
+    candidates = []
+    if icon_hash:
+        candidates.append((
+            f"https://media.steampowered.com/steamcommunity/public/images"
+            f"/apps/{appid}/{icon_hash}.jpg",
+            False,   # pas besoin de crop
+        ))
+    candidates.append((
+        f"https://cdn.akamai.steamstatic.com/steam/apps/{appid}/header.jpg",
+        True,    # image large → crop carré centré
+    ))
+
+    for url, needs_crop in candidates:
+        try:
+            req  = urllib.request.Request(url, headers={"User-Agent": "TimeTracker/1.0"})
+            resp = urllib.request.urlopen(req, timeout=10)
+            data = resp.read()
+            img  = Image.open(io.BytesIO(data)).convert("RGBA")
+            if needs_crop:
+                w, h  = img.size
+                side  = min(w, h)
+                left  = (w - side) // 2
+                top   = (h - side) // 2
+                img   = img.crop((left, top, left + side, top + side))
+            save = img.resize((_SAVE_SIZE, _SAVE_SIZE), Image.Resampling.LANCZOS)
+            save.save(disk_path, "PNG")
+            result = save if size == _SAVE_SIZE else save.resize((size, size), Image.Resampling.LANCZOS)
+            _mem_cache[key] = result
+            return result
+        except Exception:
+            continue
+
+    return None
+
+
 def get_pil_icon(exe_path: str, size: int = 24) -> Image.Image | None:
     """Extraction directe depuis l'exe, sans cache disque (compat)."""
     return _extract_from_exe(exe_path, size)

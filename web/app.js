@@ -181,6 +181,8 @@ function _handleEvent(ev) {
     api('show_notification', `Nouveau jeu détecté : ${ev.game_name}`, msg, 'blue', {
       game_name: ev.game_name, proc_name: ev.proc_name, exe_path: ev.exe_path,
     });
+  } else if (ev.type === 'steam_result') {
+    _onSteamResult(ev);
   }
 }
 
@@ -243,6 +245,8 @@ function renderGames() {
   const activeSet = new Set(Object.keys(S.active));
 
   const recent = Object.entries(games).filter(([n, d]) => {
+    if (d.archived) return false;
+    if (d.pinned)   return true;
     if (activeSet.has(n)) return true;
     const sessions = d.sessions || [];
     if (!sessions.length) return false;
@@ -250,13 +254,24 @@ function renderGames() {
   }).sort(([an,ad],[bn,bd]) => {
     const aAct = activeSet.has(an), bAct = activeSet.has(bn);
     if (aAct !== bAct) return aAct ? -1 : 1;
+    const aPin = !!ad.pinned && !activeSet.has(an);
+    const bPin = !!bd.pinned && !activeSet.has(bn);
+    if (aPin !== bPin) return aPin ? -1 : 1;
     const aLast = ad.sessions?.length ? new Date(ad.sessions[ad.sessions.length-1].end) : new Date(0);
     const bLast = bd.sessions?.length ? new Date(bd.sessions[bd.sessions.length-1].end) : new Date(0);
     return bLast - aLast;
   });
 
-  const sorted  = _sortedGames(games);
-  const maxSecs = sorted.reduce((m, [,d]) => Math.max(m, d.total_seconds || 0), 0);
+  const sorted      = _sortedGames(games);
+
+  // Seuls les jeux non exclus servent de référence pour le ranking et la barre
+  const eligible = Object.entries(games).filter(([,d]) => !d.exclude_rank);
+  const maxSecs  = eligible.reduce((m, [,d]) => Math.max(m, d.total_seconds || 0), 0);
+
+  const rankMap = {};
+  eligible
+    .sort(([,a],[,b]) => (b.total_seconds||0) - (a.total_seconds||0))
+    .forEach(([n], i) => { rankMap[n] = i + 1; });
 
   let html = '';
 
@@ -265,15 +280,25 @@ function renderGames() {
     html += '<p class="empty-msg" style="padding:16px 6px">Aucun jeu joué récemment.</p>';
   } else {
     html += '<div class="recent-list">';
-    recent.forEach(([name, data]) => { html += _gameCardHTML(name, data); });
+    recent.forEach(([name, data]) => { html += _gameCardHTML(name, data, maxSecs, rankMap[name]); });
     html += '</div>';
   }
 
   html += `<div class="section-header" style="margin-top:8px">Bibliothèque <span class="section-count">${sorted.length}</span></div>`;
   html += _libSortHdrHTML();
-  sorted.forEach(([name, data]) => { html += _libRowHTML(name, data, maxSecs); });
+  sorted.forEach(([name, data]) => { html += _libRowHTML(name, data, maxSecs, rankMap[name]); });
 
   container.innerHTML = html;
+
+  // Sort header listeners — rebindés à chaque rendu pour éviter les doublons
+  container.querySelectorAll('[data-sort]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.sort;
+      if (S.sort.key === k) S.sort.asc = !S.sort.asc;
+      else { S.sort.key = k; S.sort.asc = k !== 'time' && k !== 'recent'; }
+      renderGames();
+    });
+  });
 
   [...recent, ...sorted].forEach(([name, data]) => {
     _loadIconsForGame(name, data.exe_path || '');
@@ -282,7 +307,7 @@ function renderGames() {
   container.querySelectorAll('.row-menu').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      showCtxMenu(e, btn.dataset.game);
+      showCtxMenu(e, btn.dataset.game, btn.dataset.section);
     });
   });
 }
@@ -299,7 +324,14 @@ function _libSortHdrHTML() {
   </div>`;
 }
 
-function _gameCardHTML(name, data) {
+function _rankHTML(rank) {
+  if (!rank) return '';
+  const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+  const cls   = rank <= 3 ? ' rank-top' : '';
+  return `<span class="rank-label${cls}">${medal ? medal + ' ' : ''}#${rank}</span>`;
+}
+
+function _gameCardHTML(name, data, maxSecs, rank) {
   const isActive   = name in S.active;
   const activeInfo = S.active[name];
   const sessions   = data.sessions || [];
@@ -310,27 +342,37 @@ function _gameCardHTML(name, data) {
   const liveAttr   = ` data-game="${name.replace(/"/g,'&quot;')}"`;
   const initials   = _nameInitials(name);
   const initColor  = _initColor(name);
+  const excluded   = !!data.exclude_rank;
+  const barPct     = (!excluded && maxSecs > 0) ? Math.max(2, Math.round((secs / maxSecs) * 100)) : 0;
 
+  const isPinned   = !!data.pinned;
+  const pinBadge   = isPinned ? ' <span class="pin-badge">Épinglé</span>' : '';
   const statusHtml = isActive
     ? `<div class="card-status live-status" style="color:var(--blue)"${liveAttr}>● IN GAME</div>`
     : `<div class="card-status live-status" style="color:var(--subtext0)"${liveAttr}>${last}</div>`;
 
   return `<div class="game-card${activeClass}">
-    <div class="card-icon row-icon" data-icon="${_esc(name)}">
-      <div class="icon-initials" style="background:${initColor}">${initials}</div>
+    <div class="card-main">
+      <div class="card-icon row-icon" data-icon="${_esc(name)}">
+        <div class="icon-initials" style="background:${initColor}">${initials}</div>
+      </div>
+      <div class="card-body">
+        <div class="card-name">${_esc(name)}${pinBadge}</div>
+        ${statusHtml}
+      </div>
+      <div class="card-right">
+        <div class="card-time live-time"${liveAttr}>${time}</div>
+      </div>
+      <div class="row-menu lib-menu" data-game="${_esc(name)}" data-section="recent">⋮</div>
     </div>
-    <div class="card-body">
-      <div class="card-name">${_esc(name)}</div>
-      ${statusHtml}
+    <div class="card-footer">
+      ${excluded ? '' : `<div class="card-rank">${_rankHTML(rank)}</div>`}
+      ${excluded ? '' : `<div class="card-bar"><div class="card-bar-fill" style="width:${barPct}%"></div></div>`}
     </div>
-    <div class="card-right">
-      <div class="card-time live-time"${liveAttr}>${time}</div>
-    </div>
-    <div class="row-menu lib-menu" data-game="${_esc(name)}">⋮</div>
   </div>`;
 }
 
-function _libRowHTML(name, data, maxSecs) {
+function _libRowHTML(name, data, maxSecs, rank) {
   const isActive   = name in S.active;
   const activeInfo = S.active[name];
   const sessions   = data.sessions || [];
@@ -339,21 +381,35 @@ function _libRowHTML(name, data, maxSecs) {
   const last       = _fmtLastPlayed(sessions);
   const activeClass = isActive ? ' active-game' : '';
   const liveAttr   = ` data-game="${name.replace(/"/g,'&quot;')}"`;
-  const barPct     = maxSecs > 0 ? Math.max(2, Math.round((secs / maxSecs) * 100)) : 0;
+  const excluded   = !!data.exclude_rank;
+  const barPct     = (!excluded && maxSecs > 0) ? Math.max(2, Math.round((secs / maxSecs) * 100)) : 0;
   const initials   = _nameInitials(name);
   const initColor  = _initColor(name);
+  const displayName = name.length > 35 ? name.slice(0, 35) + '…' : name;
+  const isPinned   = !!data.pinned;
+  const isArchived = !!data.archived;
+  const badges     = (isPinned ? ' <span class="pin-badge">Épinglé</span>' : '')
+                   + (isArchived ? ' <span class="archive-badge">Archivé</span>' : '');
 
-  return `<div class="lib-row${activeClass}">
+  return `<div class="lib-row${activeClass}${isArchived ? ' archived-row' : ''}">
     <div class="lib-icon row-icon" data-icon="${_esc(name)}">
       <div class="icon-initials" style="background:${initColor}">${initials}</div>
     </div>
-    <div class="lib-name${isActive?' active-text':''}">${_esc(name)}</div>
+    <div class="lib-name${isActive?' active-text':''}" title="${_esc(name)}">
+      ${_esc(displayName)}${badges}
+    </div>
     <div class="lib-last">${last}</div>
     <div class="lib-time-wrap">
-      <div class="lib-time${isActive?' active-text':''} live-time"${liveAttr}>${time}</div>
-      <div class="lib-bar"><div class="lib-bar-fill" style="width:${barPct}%"></div></div>
+      ${excluded
+        ? `<div class="lib-time${isActive?' active-text':''} live-time"${liveAttr}>${time}</div>`
+        : `<div class="lib-time-row">
+            <div class="lib-rank">${_rankHTML(rank)}</div>
+            <div class="lib-time${isActive?' active-text':''} live-time"${liveAttr}>${time}</div>
+           </div>
+           <div class="lib-bar"><div class="lib-bar-fill" style="width:${barPct}%"></div></div>`
+      }
     </div>
-    <div class="row-menu lib-menu" data-game="${_esc(name)}">⋮</div>
+    <div class="row-menu lib-menu" data-game="${_esc(name)}" data-section="library">⋮</div>
   </div>`;
 }
 
@@ -401,9 +457,36 @@ function _applyIcon(name) {
 }
 
 // ── Context menu ───────────────────────────────────────────────────────────
-function showCtxMenu(e, name) {
+function showCtxMenu(e, name, section) {
   document.querySelectorAll('.ctx-menu').forEach(m => m.remove());
+  const data = S.games[name] || {};
   const menu = make('div', 'ctx-menu');
+
+  if (section === 'recent') {
+    if (data.pinned) {
+      const b = make('button', '', '📌 Désépingler');
+      b.onclick = () => { menu.remove(); _setGamePinned(name, false); };
+      menu.appendChild(b);
+    } else {
+      const b = make('button', '', 'Archiver');
+      b.onclick = () => { menu.remove(); _setGameArchived(name, true); };
+      menu.appendChild(b);
+    }
+    menu.appendChild(document.createElement('hr'));
+  } else {
+    if (data.archived) {
+      const b = make('button', '', 'Désarchiver');
+      b.onclick = () => { menu.remove(); _setGameArchived(name, false); };
+      menu.appendChild(b);
+    } else {
+      const label = data.pinned ? '📌 Désépingler' : '📌 Épingler';
+      const b = make('button', '', label);
+      b.onclick = () => { menu.remove(); _setGamePinned(name, !data.pinned); };
+      menu.appendChild(b);
+    }
+    menu.appendChild(document.createElement('hr'));
+  }
+
   const btnRename = make('button', '', 'Renommer');
   const btnDelete = make('button', 'danger', 'Supprimer');
   btnRename.onclick = () => { menu.remove(); openRenameModal(name); };
@@ -418,6 +501,16 @@ function showCtxMenu(e, name) {
   menu.style.top  = y + 'px';
   document.body.appendChild(menu);
   setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+}
+
+async function _setGamePinned(name, pinned) {
+  await api('set_game_pinned', name, pinned);
+  S.version = -1;
+}
+
+async function _setGameArchived(name, archived) {
+  await api('set_game_archived', name, archived);
+  S.version = -1;
 }
 
 // ── History tab ────────────────────────────────────────────────────────────
@@ -502,12 +595,10 @@ function _buildHistoryNav() {
       : h.mode === 'week'
       ? _fmtWeek(_startOfWeek(h.ref), _endOfWeek(h.ref))
       : _fmtMonth(h.ref);
-    const todayLbl = h.mode === 'day' ? "Aujourd'hui" : h.mode === 'week' ? 'Cette semaine' : 'Ce mois';
     nav.innerHTML = `
       <button id="nav-prev">&lt;</button>
       <span class="nav-label">${label}</span>
-      <button id="nav-next">&gt;</button>
-      <button class="nav-today">${todayLbl}</button>`;
+      <button id="nav-next">&gt;</button>`;
     el('nav-prev').onclick = () => {
       if (h.mode === 'day')        h.ref = new Date(h.ref - 86400000);
       else if (h.mode === 'week')  h.ref = new Date(h.ref - 7 * 86400000);
@@ -520,7 +611,6 @@ function _buildHistoryNav() {
       else { const d = new Date(h.ref); d.setMonth(d.getMonth() + 1); h.ref = d; }
       renderHistory();
     };
-    nav.querySelector('.nav-today').onclick = () => { h.ref = _today(); renderHistory(); };
   } else {
     nav.innerHTML = `
       <div class="custom-range">
@@ -541,9 +631,9 @@ function _buildHistoryNav() {
 
 // ── Stats tab ──────────────────────────────────────────────────────────────
 const STAT_PERIODS = [
-  { label: '7 derniers jours',  days: 7  },
-  { label: '30 derniers jours', days: 30 },
-  { label: '3 derniers mois',   days: 90 },
+  { label: '7 derniers jours',  key: 'w1',   getStart: now => new Date(now - 7 * 86400000) },
+  { label: '30 derniers jours', key: 'w4',   getStart: now => new Date(now - 30 * 86400000) },
+  { label: 'Cette année',       key: 'year', getStart: now => new Date(now.getFullYear(), 0, 1) },
 ];
 
 async function renderStats() {
@@ -552,7 +642,7 @@ async function renderStats() {
 
   const now = new Date();
   const results = await Promise.all(STAT_PERIODS.map(p => {
-    const start = new Date(now - p.days * 86400000);
+    const start = p.getStart(now);
     return api('get_stats', _toLocalISO(start), _toLocalISO(now));
   }));
 
@@ -565,8 +655,8 @@ async function renderStats() {
       ${entries.length === 0
         ? '<p class="empty-msg" style="padding:12px 6px">Aucune donnée.</p>'
         : `<div class="stats-period-body">
-            <canvas id="donut-${p.days}" class="stats-donut"></canvas>
-            <div class="stats-period-legend" id="legend-${p.days}"></div>
+            <canvas id="donut-${p.key}" class="stats-donut"></canvas>
+            <div class="stats-period-legend" id="legend-${p.key}"></div>
            </div>`
       }
     </div>`;
@@ -579,14 +669,100 @@ async function renderStats() {
     const entries = Object.entries(data).sort(([,a],[,b]) => b - a);
     if (!entries.length) return;
     const total = entries.reduce((a,[,v]) => a+v, 0);
-    _drawDonut(entries, total, `donut-${p.days}`, 220);
-    el(`legend-${p.days}`).innerHTML = entries.map(([name, secs], j) => `
+    _drawDonut(entries, total, `donut-${p.key}`, 220);
+    el(`legend-${p.key}`).innerHTML = entries.map(([name, secs], j) => `
       <div class="legend-item">
         <div class="legend-dot" style="background:${COLORS[j % COLORS.length]}"></div>
         <span class="legend-name">${_esc(name)}</span>
         <span class="legend-time">${_fmtDuration(secs)}</span>
       </div>`).join('');
   });
+}
+
+let _otherStatsShowExcluded = false;
+
+function _openOtherStats() {
+  _otherStatsShowExcluded = false;
+  _renderOtherStats();
+  _showOverlay('modal-other-stats');
+}
+
+function _renderOtherStats() {
+  const allGames = Object.entries(S.games);
+  const base     = _otherStatsShowExcluded
+    ? allGames.filter(([,d]) => (d.total_seconds || 0) > 0)
+    : allGames.filter(([,d]) => !d.exclude_rank && (d.total_seconds || 0) > 0);
+  const content  = el('other-stats-content');
+
+  const playedCount = base.length;
+  const allSessions = base.flatMap(([,d]) => (d.sessions || []).filter(s => s.duration > 0));
+  const avgSession  = allSessions.length
+    ? Math.round(allSessions.reduce((s, x) => s + x.duration, 0) / allSessions.length) : 0;
+  const avgPerGame  = base.length
+    ? Math.round(base.reduce((s, [,d]) => s + (d.total_seconds || 0), 0) / base.length) : 0;
+
+  const sorted      = [...base].sort(([,a],[,b]) => (b.total_seconds||0) - (a.total_seconds||0));
+  const mostPlayed  = sorted[0] || null;
+  const leastPlayed = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+
+  const row = (label, value) => `
+    <div class="other-stat-row">
+      <span class="other-stat-label">${label}</span>
+      <span class="other-stat-value">${value}</span>
+    </div>`;
+
+  el('btn-other-stats-toggle').textContent = _otherStatsShowExcluded ? 'Masquer les exclus' : 'Inclure les exclus';
+
+  content.innerHTML =
+    row('Jeux joués', playedCount) +
+    row("Durée moyenne d'une session", _fmtDuration(avgSession)) +
+    row('Temps moyen par jeu', _fmtDuration(avgPerGame)) +
+    (mostPlayed  ? row('Jeu le plus joué',  `${_esc(mostPlayed[0])} <span class="other-stat-sub">${_fmtDuration(mostPlayed[1].total_seconds)}</span>`) : '') +
+    (leastPlayed ? row('Jeu le moins joué', `${_esc(leastPlayed[0])} <span class="other-stat-sub">${_fmtDuration(leastPlayed[1].total_seconds)}</span>`) : '');
+}
+
+function _openStatsCustom() {
+  const now = new Date();
+  const startDef = new Date(now.getFullYear(), now.getMonth(), 1);
+  el('stats-custom-start').value = _isoDate(startDef);
+  el('stats-custom-end').value   = _isoDate(now);
+  el('stats-custom-content').innerHTML = '';
+  _showOverlay('modal-stats-custom');
+}
+
+async function _renderStatsCustom() {
+  const startVal = el('stats-custom-start').value;
+  const endVal   = el('stats-custom-end').value;
+  if (!startVal || !endVal) return;
+
+  const start = new Date(startVal + 'T00:00:00');
+  const end   = new Date(endVal   + 'T23:59:59');
+  if (start > end) return;
+
+  const content = el('stats-custom-content');
+  content.innerHTML = '<p class="empty-msg" style="padding:16px 6px">Chargement…</p>';
+
+  const data    = await api('get_stats', _toLocalISO(start), _toLocalISO(end));
+  const entries = data ? Object.entries(data).sort(([,a],[,b]) => b - a) : [];
+
+  if (!entries.length) {
+    content.innerHTML = '<p class="empty-msg" style="padding:16px 6px">Aucune donnée pour cette période.</p>';
+    return;
+  }
+
+  const total = entries.reduce((a,[,v]) => a+v, 0);
+  content.innerHTML = `
+    <div class="stats-period-body">
+      <canvas id="donut-custom" class="stats-donut"></canvas>
+      <div class="stats-period-legend" id="legend-custom"></div>
+    </div>`;
+  _drawDonut(entries, total, 'donut-custom', 200);
+  el('legend-custom').innerHTML = entries.map(([name, secs], j) => `
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${COLORS[j % COLORS.length]}"></div>
+      <span class="legend-name">${_esc(name)}</span>
+      <span class="legend-time">${_fmtDuration(secs)}</span>
+    </div>`).join('');
 }
 
 function _drawDonut(entries, total, canvasId = 'donut', size = 0) {
@@ -910,7 +1086,7 @@ function _startApp() {
 function _updateAccountBtn(email) {
   const btn = el('btn-account');
   btn.classList.add('logged-in');
-  btn.title = email || 'Mon compte';
+  btn.title = 'Paramètres';
 }
 
 async function _refreshSyncStatus() {
@@ -959,6 +1135,235 @@ function _applySyncStatus(info) {
   }
 }
 
+// ── Onglets de paramètres (bas de la modale compte) ──────────────────────────
+
+function _setSettingsTab(stab) {
+  document.querySelectorAll('.settings-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.stab === stab));
+  document.querySelectorAll('.stab-pane').forEach(p =>
+    p.classList.toggle('active', p.id === 'stab-' + stab));
+  if (stab === 'rank') _renderRankExclusions();
+}
+
+let _rankExclSelected = '';
+
+function _renderRankExclusions() {
+  _rankExclSelected = '';
+  const input = el('rank-excl-search');
+  if (input) input.value = '';
+  _rankExclHideSuggestions();
+  _renderRankExclList();
+}
+
+function _renderRankExclList() {
+  const list = el('rank-excl-list');
+  if (!list) return;
+  const excluded = Object.entries(S.games)
+    .filter(([,d]) => d.exclude_rank)
+    .sort(([a],[b]) => a.localeCompare(b));
+  if (!excluded.length) {
+    list.innerHTML = '<p class="empty-msg" style="padding:10px 14px;font-size:12px">Aucun jeu exclu.</p>';
+    return;
+  }
+  list.innerHTML = excluded.map(([name]) => `
+    <div class="rank-excl-tag">
+      <span class="rank-excl-tag-name">${_esc(name)}</span>
+      <button class="rank-excl-remove" data-game="${_esc(name)}" title="Réintégrer">✕</button>
+    </div>`).join('');
+  list.querySelectorAll('.rank-excl-remove').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const g = btn.dataset.game;
+      if (S.games[g]) S.games[g].exclude_rank = false;
+      _renderRankExclList();
+      try { await api('set_game_flag', g, 'exclude_rank', false); } catch(e) {}
+      S.version = -1;
+    });
+  });
+}
+
+function _rankExclInput() {
+  const val = el('rank-excl-search').value.trim().toLowerCase();
+  const box = el('rank-excl-suggestions');
+  _rankExclSelected = '';
+  if (!val) { _rankExclHideSuggestions(); return; }
+  const matches = Object.entries(S.games)
+    .filter(([name, d]) => !d.exclude_rank && name.toLowerCase().startsWith(val))
+    .sort(([a],[b]) => a.localeCompare(b))
+    .slice(0, 6);
+  if (!matches.length) { _rankExclHideSuggestions(); return; }
+  box.innerHTML = matches.map(([name]) =>
+    `<div class="rank-excl-sugg" data-game="${_esc(name)}">${_esc(name)}</div>`).join('');
+  box.classList.remove('hidden');
+  const r = el('rank-excl-search').getBoundingClientRect();
+  box.style.top   = (r.bottom + 3) + 'px';
+  box.style.left  = r.left + 'px';
+  box.style.width = r.width + 'px';
+  box.querySelectorAll('.rank-excl-sugg').forEach(row => {
+    row.addEventListener('mousedown', e => {
+      e.preventDefault();
+      el('rank-excl-search').value = row.dataset.game;
+      _rankExclSelected = row.dataset.game;
+      _rankExclHideSuggestions();
+    });
+  });
+}
+
+function _rankExclHideSuggestions() {
+  const box = el('rank-excl-suggestions');
+  if (box) { box.innerHTML = ''; box.classList.add('hidden'); }
+}
+
+async function _rankExclAdd() {
+  let name = _rankExclSelected || el('rank-excl-search').value.trim();
+  if (!name) return;
+  if (!S.games[name]) {
+    const lower = name.toLowerCase();
+    name = Object.keys(S.games).find(g => !S.games[g].exclude_rank && g.toLowerCase().startsWith(lower)) || '';
+    if (!name) return;
+  }
+  if (S.games[name].exclude_rank) return;
+  S.games[name].exclude_rank = true;
+  el('rank-excl-search').value = '';
+  _rankExclSelected = '';
+  _rankExclHideSuggestions();
+  _renderRankExclList();
+  try { await api('set_game_flag', name, 'exclude_rank', true); } catch(e) {}
+  S.version = -1;
+}
+
+// ── Steam ────────────────────────────────────────────────────────────────────
+
+let _steamGames = []; // cache des jeux récupérés
+
+async function _steamLoadConfig() {
+  const cfg = await api('steam_get_config');
+  if (!cfg) return;
+  if (cfg.api_key)  el('steam-api-key').value = cfg.api_key;
+  if (cfg.steam_id) el('steam-id').value       = cfg.steam_id;
+}
+
+async function _steamDetect() {
+  const btn = el('btn-steam-detect');
+  btn.textContent = '…'; btn.disabled = true;
+  try {
+    const ids = await api('steam_detect_ids');
+    if (ids && ids.length > 0) {
+      el('steam-id').value = ids[0];
+      _steamStatus('Steam ID détecté.', 'ok');
+    } else {
+      _steamStatus('Steam non trouvé sur ce PC.', 'err');
+    }
+  } finally { btn.textContent = 'Détecter'; btn.disabled = false; }
+}
+
+async function _steamFetch() {
+  const apiKey  = el('steam-api-key').value.trim();
+  const steamId = el('steam-id').value.trim();
+  if (!apiKey || !steamId) { _steamStatus('Remplis la clé API et le Steam ID.', 'err'); return; }
+
+  const btn = el('btn-steam-fetch');
+  btn.textContent = '…'; btn.disabled = true;
+  _steamStatus('Connexion à Steam…', '');
+
+  // steam_fetch retourne immédiatement {"ok":true} — le résultat arrive via l'event steam_result
+  try {
+    const r = await api('steam_fetch', apiKey, steamId);
+    if (!r || !r.ok) {
+      _steamStatus((r && r.error) || 'Erreur inconnue.', 'err');
+      btn.textContent = 'Récupérer les jeux'; btn.disabled = false;
+    }
+    // Si ok : on attend l'event steam_result dans poll() — bouton reste désactivé
+  } catch(e) {
+    _steamStatus('Erreur JS : ' + e.message, 'err');
+    btn.textContent = 'Récupérer les jeux'; btn.disabled = false;
+  }
+}
+
+function _onSteamResult(ev) {
+  const btn = el('btn-steam-fetch');
+  if (btn) { btn.textContent = 'Récupérer les jeux'; btn.disabled = false; }
+  if (!ev.ok) {
+    _steamStatus(ev.error || 'Erreur inconnue.', 'err');
+    return;
+  }
+  _steamStatus('', '');
+  _steamGames = ev.games;
+  _steamOpenModal(ev.games);
+}
+
+function _steamOpenModal(games) {
+  _renderSteamList(games);
+  _showOverlay('modal-steam', true);
+}
+
+function _renderSteamList(games) {
+  const list = el('steam-games-list');
+  list.innerHTML = games.map((g, i) => {
+    const isNever   = g.status === 'never';
+    const checked   = (g.status === 'match' || g.status === 'new') ? 'checked' : '';
+    const disabled  = isNever ? 'disabled' : '';
+    const rowCls    = isNever ? ' synced'  : '';
+    const badge     = g.status === 'match'  ? `<span class="steam-badge steam-badge-match">+${_fmtH(g.added_secs)}</span>`
+                    : g.status === 'new'    ? `<span class="steam-badge steam-badge-new">Nouveau</span>`
+                    : `<span class="steam-badge steam-badge-synced">À jour</span>`;
+    const local     = g.local_name && g.local_name !== g.steam_name
+                    ? `<div class="steam-game-local">→ ${_esc(g.local_name)}</div>` : '';
+    return `<label class="steam-game-row${rowCls}">
+      <input type="checkbox" data-idx="${i}" ${checked} ${disabled}>
+      <div class="steam-game-name">${_esc(g.steam_name)}${local}</div>
+      <div class="steam-game-hours">${g.steam_hours}h</div>
+      ${badge}
+    </label>`;
+  }).join('');
+  list.querySelectorAll('input[type=checkbox]').forEach(cb =>
+    cb.addEventListener('change', _updateSteamCount));
+  _updateSteamCount();
+}
+
+function _updateSteamCount() {
+  const total   = el('steam-games-list').querySelectorAll('input:not([disabled])').length;
+  const checked = el('steam-games-list').querySelectorAll('input:not([disabled]):checked').length;
+  el('steam-sel-count').textContent = `${checked} / ${total} sélectionné${checked > 1 ? 's' : ''}`;
+}
+
+function _steamSelectAll(val) {
+  el('steam-games-list').querySelectorAll('input:not([disabled])').forEach(cb => cb.checked = val);
+  _updateSteamCount();
+}
+
+async function _steamConfirmImport() {
+  const checked = [...el('steam-games-list').querySelectorAll('input:not([disabled]):checked')];
+  if (!checked.length) { closeModal(); return; }
+
+  const selections = checked.map(cb => {
+    const g = _steamGames[+cb.dataset.idx];
+    return { steam_name: g.steam_name, local_name: g.local_name, steam_hours: g.steam_hours,
+             appid: g.appid, img_icon_url: g.img_icon_url };
+  });
+
+  const btn = el('btn-steam-confirm');
+  btn.textContent = '…'; btn.disabled = true;
+  try {
+    const r = await api('steam_import_selection', selections);
+    if (!r || !r.ok) { btn.textContent = 'Erreur'; return; }
+    selections.forEach(sel => { delete S.icons[sel.local_name || sel.steam_name]; });
+    closeModal();
+    const h = Math.round((r.added_seconds || 0) / 3600);
+    _steamStatus(`${r.imported} jeu${r.imported > 1 ? 'x' : ''} importé${r.imported > 1 ? 's' : ''} (+${h}h).`, 'ok');
+  } finally { btn.textContent = 'Importer la sélection'; btn.disabled = false; }
+}
+
+function _fmtH(secs) {
+  const h = secs / 3600;
+  return h >= 10 ? Math.round(h) + 'h' : h.toFixed(1) + 'h';
+}
+
+function _steamStatus(msg, type) {
+  const s = el('steam-status');
+  s.textContent = msg;
+  s.className   = 'account-error' + (type ? ' ' + type : '');
+}
+
 // Ouvre le modal (depuis le bouton compte, quand déjà connecté)
 async function _openAccount() {
   const info = await api('sync_get_info');
@@ -966,10 +1371,13 @@ async function _openAccount() {
   if (info.logged_in) {
     _showAccountLoggedIn(info.email);
     _applySyncStatus(info);
-    _showOverlay('modal-account', /*canClose=*/true);
+    _showOverlay('modal-account', /*canClose=*/false);
   } else {
     _showLoginModal(/*mandatory=*/false);
   }
+  _setSettingsTab('steam');
+  _steamLoadConfig();
+  _steamStatus('', '');
 }
 
 function _showLoginModal(mandatory) {
@@ -980,7 +1388,7 @@ function _showLoginModal(mandatory) {
   el('modal-close-account').classList.toggle('hidden', mandatory);
   el('account-error').textContent = '';
   _setAccountTab('login');
-  _showOverlay('modal-account', !mandatory);
+  _showOverlay('modal-account', /*canClose=*/false);
 }
 
 function _showAccountLoggedIn(email) {
@@ -1170,7 +1578,7 @@ async function _submitChangePassword() {
 async function _signOut() {
   await api('sync_sign_out');
   el('btn-account').classList.remove('logged-in');
-  el('btn-account').title = 'Compte';
+  el('btn-account').title = 'Paramètres';
   closeModal();
   // Affiche le modal de connexion obligatoire
   _showLoginModal(/*mandatory=*/true);
@@ -1201,15 +1609,7 @@ function init() {
   });
 
 
-  // List header sort
-  document.addEventListener('click', e => {
-    const btn = e.target.closest('[data-sort]');
-    if (!btn) return;
-    const k = btn.dataset.sort;
-    if (S.sort.key === k) S.sort.asc = !S.sort.asc;
-    else { S.sort.key = k; S.sort.asc = k === 'name'; }
-    renderGames();
-  });
+  // List header sort — listeners branchés directement dans renderGames()
 
   // Modal close buttons
   document.querySelectorAll('.modal-close, .modal-cancel').forEach(b =>
@@ -1253,6 +1653,8 @@ function init() {
   el('btn-account').addEventListener('click', _openAccount);
   document.querySelectorAll('.account-tab').forEach(t =>
     t.addEventListener('click', () => _setAccountTab(t.dataset.atab)));
+  document.querySelectorAll('.settings-tab').forEach(t =>
+    t.addEventListener('click', () => _setSettingsTab(t.dataset.stab)));
   el('btn-account-submit').addEventListener('click', _submitAccount);
   el('account-password').addEventListener('keydown', e => {
     if (e.key === 'Enter') _submitAccount();
@@ -1272,6 +1674,28 @@ function init() {
   el('account-newpwd2').addEventListener('keydown', e => {
     if (e.key === 'Enter') _submitNewPassword();
   });
+
+  // Rank exclusions
+  el('rank-excl-search').addEventListener('input', _rankExclInput);
+  el('rank-excl-search').addEventListener('blur', () => setTimeout(_rankExclHideSuggestions, 150));
+  el('rank-excl-search').addEventListener('keydown', e => { if (e.key === 'Enter') _rankExclAdd(); });
+  el('btn-rank-excl-add').addEventListener('click', _rankExclAdd);
+
+  // Stats
+  el('btn-stats-other').addEventListener('click', _openOtherStats);
+  el('btn-other-stats-toggle').onclick = () => {
+    _otherStatsShowExcluded = !_otherStatsShowExcluded;
+    _renderOtherStats();
+  };
+  el('btn-stats-custom').addEventListener('click', _openStatsCustom);
+  el('btn-stats-custom-go').addEventListener('click', _renderStatsCustom);
+
+  // Steam
+  el('btn-steam-detect').addEventListener('click', _steamDetect);
+  el('btn-steam-fetch').addEventListener('click', _steamFetch);
+  el('btn-steam-all').addEventListener('click',  () => _steamSelectAll(true));
+  el('btn-steam-none').addEventListener('click', () => _steamSelectAll(false));
+  el('btn-steam-confirm').addEventListener('click', _steamConfirmImport);
 
   // Auth check → démarre l'app (poll) seulement si connecté
   checkAuth();

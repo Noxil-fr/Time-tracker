@@ -115,6 +115,24 @@ class Api:
             self._bump()
         return ok
 
+    def set_game_archived(self, name: str, archived: bool) -> dict:
+        ok = self._dm.set_game_flag(name, "archived", bool(archived))
+        if ok:
+            self._bump()
+        return {"ok": ok}
+
+    def set_game_pinned(self, name: str, pinned: bool) -> dict:
+        ok = self._dm.set_game_flag(name, "pinned", bool(pinned))
+        if ok:
+            self._bump()
+        return {"ok": ok}
+
+    def set_game_flag(self, name: str, flag: str, value) -> dict:
+        ok = self._dm.set_game_flag(name, flag, value)
+        if ok:
+            self._bump()
+        return {"ok": ok}
+
     def rename_game(self, old_name: str, new_name: str) -> dict:
         new_name = new_name.strip()
         if not new_name:
@@ -212,6 +230,14 @@ class Api:
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
         pil_img = get_game_icon(game_name, exe_path or "", 32)
+        if not pil_img:
+            # Fallback : icône Steam CDN (icône hash puis header image)
+            game_data   = self._dm.get_games().get(game_name, {})
+            steam_appid = game_data.get("steam_appid", 0)
+            if steam_appid:
+                steam_icon = game_data.get("steam_icon_hash", "")
+                from icon_cache import fetch_steam_icon
+                pil_img = fetch_steam_icon(game_name, steam_appid, steam_icon, 32)
         if not pil_img:
             return ""
         buf = io.BytesIO()
@@ -315,6 +341,105 @@ class Api:
             icon = get_game_icon(game_name, exe_path or "", 24)
 
         self._notif.show(title, message, color, suggestion, icon)
+
+    # ── Steam ─────────────────────────────────────────────────────────────────
+
+    def steam_get_config(self) -> dict:
+        return self._dm.get_steam_config()
+
+    def steam_save_config(self, api_key: str, steam_id: str) -> None:
+        self._dm.save_steam_config(api_key.strip(), steam_id.strip())
+
+    def steam_detect_ids(self) -> list:
+        from steam import detect_steam_ids
+        return detect_steam_ids()
+
+    def steam_fetch(self, api_key: str, steam_id: str) -> dict:
+        """Lance le chargement Steam en tâche de fond et retourne immédiatement.
+        Le résultat est poussé via le mécanisme d'événements du poll()."""
+        import threading
+        api_key  = api_key.strip()
+        steam_id = steam_id.strip()
+        if not api_key or not steam_id:
+            return {"ok": False, "error": "Clé API et Steam ID requis."}
+
+        def _do():
+            try:
+                from steam import fetch_owned_games, get_all_games_status
+                steam_games = fetch_owned_games(api_key, steam_id)
+                if not steam_games:
+                    ev = {"type": "steam_result", "ok": False,
+                          "error": "Aucun jeu trouvé (profil privé ou Steam ID incorrect)."}
+                else:
+                    self._dm.save_steam_config(api_key, steam_id)
+                    games = get_all_games_status(steam_games, self._dm.get_games())
+                    ev = {"type": "steam_result", "ok": True, "games": games}
+            except Exception as e:
+                ev = {"type": "steam_result", "ok": False, "error": f"{type(e).__name__}: {e}"}
+            with self._lock:
+                self._events.append(ev)
+
+        threading.Thread(target=_do, daemon=True).start()
+        return {"ok": True}   # retour immédiat — résultat via poll()
+
+    def steam_import_selection(self, selections: list) -> dict:
+        """
+        Importe les jeux sélectionnés.
+        selections : [{"steam_name", "local_name"|null, "steam_hours"}, ...]
+        """
+        from steam import _norm
+        local_games = self._dm.get_games()
+        local_norm  = {_norm(n): n for n in local_games}
+        updates     = {}
+        created     = []
+
+        steam_meta = {}   # {effective_name: (appid, icon_hash)}
+
+        for sel in selections:
+            steam_name  = sel.get("steam_name", "")
+            local_name  = sel.get("local_name") or local_norm.get(_norm(steam_name))
+            steam_secs  = int(sel.get("steam_hours", 0) * 3600)
+            appid       = int(sel.get("appid") or 0)
+            icon_hash   = sel.get("img_icon_url") or ""
+
+            if local_name and local_name in local_games:
+                current = local_games[local_name].get("total_seconds", 0)
+                if steam_secs > current:
+                    updates[local_name] = steam_secs - current
+                if appid:
+                    steam_meta[local_name] = (appid, icon_hash)
+            else:
+                self._dm.add_game(steam_name, "", "")
+                updates[steam_name] = steam_secs
+                created.append(steam_name)
+                if appid:
+                    steam_meta[steam_name] = (appid, icon_hash)
+
+        if updates:
+            self._dm.apply_steam_import(updates)
+
+        for name, (appid, icon_hash) in steam_meta.items():
+            self._dm.set_game_flag(name, "steam_appid",    appid)
+            self._dm.set_game_flag(name, "steam_icon_hash", icon_hash)
+
+        if updates or steam_meta:
+            self._bump()
+
+        # Pré-télécharge les icônes Steam en tâche de fond
+        if steam_meta:
+            import threading
+            from icon_cache import fetch_steam_icon
+            def _prefetch():
+                for name, (appid, icon_hash) in steam_meta.items():
+                    fetch_steam_icon(name, appid, icon_hash, 32)
+            threading.Thread(target=_prefetch, daemon=True).start()
+
+        return {
+            "ok":           True,
+            "imported":     len(updates),
+            "added_seconds": sum(updates.values()),
+            "created":      created,
+        }
 
     # ── Utilitaires ──────────────────────────────────────────────────────────
 
