@@ -183,6 +183,10 @@ function _handleEvent(ev) {
     });
   } else if (ev.type === 'steam_result') {
     _onSteamResult(ev);
+  } else if (ev.type === 'icon_ready') {
+    delete S.icons[ev.name];
+    const game = S.games[ev.name];
+    if (game) _loadIconsForGame(ev.name, game.exe_path || '');
   }
 }
 
@@ -360,13 +364,13 @@ function _gameCardHTML(name, data, maxSecs, rank) {
         <div class="card-name">${_esc(name)}${pinBadge}</div>
         ${statusHtml}
       </div>
-      <div class="card-right">
+      <div class="card-meta">
+        ${excluded ? '' : `<div class="card-rank">${_rankHTML(rank)}</div>`}
         <div class="card-time live-time"${liveAttr}>${time}</div>
       </div>
       <div class="row-menu lib-menu" data-game="${_esc(name)}" data-section="recent">⋮</div>
     </div>
     <div class="card-footer">
-      ${excluded ? '' : `<div class="card-rank">${_rankHTML(rank)}</div>`}
       ${excluded ? '' : `<div class="card-bar"><div class="card-bar-fill" style="width:${barPct}%"></div></div>`}
     </div>
   </div>`;
@@ -386,10 +390,10 @@ function _libRowHTML(name, data, maxSecs, rank) {
   const initials   = _nameInitials(name);
   const initColor  = _initColor(name);
   const displayName = name.length > 35 ? name.slice(0, 35) + '…' : name;
-  const isPinned   = !!data.pinned;
-  const isArchived = !!data.archived;
-  const badges     = (isPinned ? ' <span class="pin-badge">Épinglé</span>' : '')
-                   + (isArchived ? ' <span class="archive-badge">Archivé</span>' : '');
+  const isPinned    = !!data.pinned;
+  const isArchived  = !!data.archived;
+  const isTimeEdited = !!data.time_edited;
+  const badges      = isPinned ? ' <span class="pin-badge">Épinglé</span>' : '';
 
   return `<div class="lib-row${activeClass}${isArchived ? ' archived-row' : ''}">
     <div class="lib-icon row-icon" data-icon="${_esc(name)}">
@@ -408,6 +412,7 @@ function _libRowHTML(name, data, maxSecs, rank) {
            </div>
            <div class="lib-bar"><div class="lib-bar-fill" style="width:${barPct}%"></div></div>`
       }
+      ${isTimeEdited ? '<div class="lib-time-edited">modifié manuellement</div>' : ''}
     </div>
     <div class="row-menu lib-menu" data-game="${_esc(name)}" data-section="library">⋮</div>
   </div>`;
@@ -468,14 +473,14 @@ function showCtxMenu(e, name, section) {
       b.onclick = () => { menu.remove(); _setGamePinned(name, false); };
       menu.appendChild(b);
     } else {
-      const b = make('button', '', 'Archiver');
+      const b = make('button', '', 'Retirer des récents');
       b.onclick = () => { menu.remove(); _setGameArchived(name, true); };
       menu.appendChild(b);
     }
     menu.appendChild(document.createElement('hr'));
   } else {
     if (data.archived) {
-      const b = make('button', '', 'Désarchiver');
+      const b = make('button', '', 'Remettre dans les récents');
       b.onclick = () => { menu.remove(); _setGameArchived(name, false); };
       menu.appendChild(b);
     } else {
@@ -694,12 +699,13 @@ function _renderOtherStats() {
     : allGames.filter(([,d]) => !d.exclude_rank && (d.total_seconds || 0) > 0);
   const content  = el('other-stats-content');
 
-  const playedCount = base.length;
-  const allSessions = base.flatMap(([,d]) => (d.sessions || []).filter(s => s.duration > 0));
-  const avgSession  = allSessions.length
+  const playedCount  = base.length;
+  const totalSeconds = base.reduce((s, [,d]) => s + (d.total_seconds || 0), 0);
+  const allSessions  = base.flatMap(([,d]) => (d.sessions || []).filter(s => s.duration > 0));
+  const avgSession   = allSessions.length
     ? Math.round(allSessions.reduce((s, x) => s + x.duration, 0) / allSessions.length) : 0;
-  const avgPerGame  = base.length
-    ? Math.round(base.reduce((s, [,d]) => s + (d.total_seconds || 0), 0) / base.length) : 0;
+  const avgPerGame   = base.length
+    ? Math.round(totalSeconds / base.length) : 0;
 
   const sorted      = [...base].sort(([,a],[,b]) => (b.total_seconds||0) - (a.total_seconds||0));
   const mostPlayed  = sorted[0] || null;
@@ -715,6 +721,7 @@ function _renderOtherStats() {
 
   content.innerHTML =
     row('Jeux joués', playedCount) +
+    row('Temps de jeu total', _fmtDuration(totalSeconds)) +
     row("Durée moyenne d'une session", _fmtDuration(avgSession)) +
     row('Temps moyen par jeu', _fmtDuration(avgPerGame)) +
     (mostPlayed  ? row('Jeu le plus joué',  `${_esc(mostPlayed[0])} <span class="other-stat-sub">${_fmtDuration(mostPlayed[1].total_seconds)}</span>`) : '') +
@@ -932,8 +939,9 @@ function _selectProc(name, exe) {
 
 async function _detectProcs() {
   const d = S.addDlg;
-  const snap = await api('get_snapshot');
+  const [snap, procs] = await Promise.all([api('get_snapshot'), api('get_all_processes')]);
   if (!snap) return;
+  if (procs) d.allProcs = procs;
   d.newProcs = snap.filter(n => !d.snapshot.includes(n));
   const count = d.newProcs.length;
 
@@ -1063,18 +1071,22 @@ function _removeToast(id) {
 let _accountMode    = 'login';  // 'login' | 'register'
 let _authRequired   = false;    // true → modal non-fermable
 
-// Vérification au démarrage : bloque l'UI si non connecté
+// L'app démarre toujours — le compte est optionnel (sync uniquement)
 async function checkAuth() {
+  _startApp();
   const s = await api('sync_status');
-  if (!s || !s.available) { _startApp(); return; }
-
+  if (!s || !s.available) return;
   if (s.logged_in) {
     _updateAccountBtn(s.email);
-    _startApp();
-    api('sync_pull_on_start').then(() => api('sync_push_now')); // pull puis push initial
+    _setOfflineBanner(false);
+    api('sync_pull_on_start').then(() => api('sync_push_now'));
   } else {
-    _showLoginModal(/*mandatory=*/true);
+    _setOfflineBanner(true);
   }
+}
+
+function _setOfflineBanner(visible) {
+  el('offline-banner').classList.toggle('hidden', !visible);
 }
 
 function _startApp() {
@@ -1135,6 +1147,101 @@ function _applySyncStatus(info) {
   }
 }
 
+// ── Édition manuelle du temps de jeu ──────────────────────────────────────────
+
+let _timeEditGame = '';
+
+function _initTimeEdit() {
+  _timeEditGame = '';
+  el('time-edit-search').value = '';
+  el('time-edit-suggestions').classList.add('hidden');
+  el('time-edit-form').classList.add('hidden');
+  el('time-edit-error').textContent = '';
+}
+
+function _timeEditShowSuggestions(q) {
+  const sugg = el('time-edit-suggestions');
+  q = q.trim().toLowerCase();
+  if (!q) { sugg.classList.add('hidden'); return; }
+
+  const matches = Object.keys(S.games)
+    .filter(n => n.toLowerCase().includes(q))
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 8);
+
+  if (!matches.length) { sugg.classList.add('hidden'); return; }
+
+  const input = el('time-edit-search');
+  const rect  = input.getBoundingClientRect();
+  sugg.style.top   = rect.bottom + 2 + 'px';
+  sugg.style.left  = rect.left   + 'px';
+  sugg.style.width = rect.width  + 'px';
+
+  sugg.innerHTML = matches.map(n =>
+    `<div class="rank-excl-sugg" data-name="${_esc(n)}">${_esc(n)}</div>`
+  ).join('');
+  sugg.classList.remove('hidden');
+
+  sugg.querySelectorAll('.rank-excl-sugg').forEach(item =>
+    item.addEventListener('mousedown', e => {
+      e.preventDefault();
+      _timeEditSelect(item.dataset.name);
+    })
+  );
+}
+
+function _timeEditSelect(name) {
+  _timeEditGame = name;
+  el('time-edit-search').value = name;
+  el('time-edit-suggestions').classList.add('hidden');
+  const d = S.games[name] || {};
+  el('time-edit-game-label').textContent = name;
+  el('time-edit-current').textContent    = _fmtDuration(d.total_seconds || 0);
+  el('time-edit-input').value            = '';
+  el('time-edit-error').textContent      = '';
+  el('time-edit-form').classList.remove('hidden');
+  el('time-edit-input').focus();
+}
+
+function _parseTimeInput(str) {
+  str = str.trim().toLowerCase().replace(',', '.');
+  // "6h 30m", "6h30m", "6h 30"
+  let m = str.match(/^(\d+)\s*h\s*(\d+)\s*m?$/);
+  if (m) return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60;
+  // "6h" or "6.5h"
+  m = str.match(/^(\d+(?:\.\d+)?)\s*h$/);
+  if (m) return Math.round(parseFloat(m[1]) * 3600);
+  // "45m"
+  m = str.match(/^(\d+)\s*m$/);
+  if (m) return parseInt(m[1]) * 60;
+  // "6:30"
+  m = str.match(/^(\d+):(\d{2})$/);
+  if (m) return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60;
+  return null;
+}
+
+async function _submitTimeEdit() {
+  const raw   = el('time-edit-input').value;
+  const secs  = _parseTimeInput(raw);
+  const errEl = el('time-edit-error');
+  if (secs === null || secs < 0) {
+    errEl.textContent = 'Format invalide — ex : 6h 30m, 6h, 45m, 6:30, 6.5h';
+    return;
+  }
+  errEl.textContent = '';
+  try {
+    const res = await api('set_game_time', _timeEditGame, secs);
+    if (!res || !res.ok) { errEl.textContent = 'Erreur lors de la sauvegarde.'; return; }
+  } catch (e) {
+    errEl.textContent = 'Erreur : ' + e.message;
+    return;
+  }
+  el('time-edit-current').textContent = _fmtDuration(secs);
+  el('time-edit-input').value         = '';
+  S.version = -1;
+  showToast(_timeEditGame, `Temps mis à jour : ${_fmtDuration(secs)}`, 'blue');
+}
+
 // ── Onglets de paramètres (bas de la modale compte) ──────────────────────────
 
 function _setSettingsTab(stab) {
@@ -1143,6 +1250,7 @@ function _setSettingsTab(stab) {
   document.querySelectorAll('.stab-pane').forEach(p =>
     p.classList.toggle('active', p.id === 'stab-' + stab));
   if (stab === 'rank') _renderRankExclusions();
+  if (stab === 'time') _initTimeEdit();
 }
 
 let _rankExclSelected = '';
@@ -1385,6 +1493,9 @@ function _showLoginModal(mandatory) {
   el('account-title').textContent = 'Connexion';
   el('account-auth-panel').classList.remove('hidden');
   el('account-logged-panel').classList.add('hidden');
+  el('account-newpwd-panel').classList.add('hidden');
+  el('account-changepwd-panel').classList.add('hidden');
+  el('settings-section').classList.remove('hidden');
   el('modal-close-account').classList.toggle('hidden', mandatory);
   el('account-error').textContent = '';
   _setAccountTab('login');
@@ -1393,11 +1504,13 @@ function _showLoginModal(mandatory) {
 
 function _showAccountLoggedIn(email) {
   _authRequired = false;
+  _setOfflineBanner(false);
   el('account-title').textContent = 'Mon compte';
   el('account-auth-panel').classList.add('hidden');
   el('account-newpwd-panel').classList.add('hidden');
   el('account-changepwd-panel').classList.add('hidden');
   el('account-logged-panel').classList.remove('hidden');
+  el('settings-section').classList.remove('hidden');
   el('account-logged-email').textContent = email;
   el('modal-close-account').classList.remove('hidden');
 }
@@ -1443,12 +1556,11 @@ async function _submitAccount() {
   btn.textContent = _accountMode === 'login' ? 'Se connecter' : "S'inscrire";
 
   if (r && r.ok) {
-    const wasRequired = _authRequired;
-    _authRequired = false;  // débloquer avant closeModal
+    _authRequired = false;
+    _showAccountLoggedIn(r.email);
     _updateAccountBtn(r.email);
     closeModal();
-    api('sync_pull_on_start');  // fusionne les données depuis le cloud
-    if (wasRequired) _startApp();
+    api('sync_pull_on_start').then(() => api('sync_push_now'));
   } else {
     errEl.textContent = (r && r.error) || 'Erreur inconnue';
   }
@@ -1579,9 +1691,8 @@ async function _signOut() {
   await api('sync_sign_out');
   el('btn-account').classList.remove('logged-in');
   el('btn-account').title = 'Paramètres';
-  closeModal();
-  // Affiche le modal de connexion obligatoire
-  _showLoginModal(/*mandatory=*/true);
+  _setOfflineBanner(true);
+  _showLoginModal(/*mandatory=*/false);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -1649,6 +1760,9 @@ function init() {
     if (e.key === 'F5') { e.preventDefault(); location.href = location.pathname + '?v=' + Date.now(); }
   });
 
+  // Bandeau déconnecté
+  el('btn-banner-connect').addEventListener('click', _openAccount);
+
   // Account / sync
   el('btn-account').addEventListener('click', _openAccount);
   document.querySelectorAll('.account-tab').forEach(t =>
@@ -1681,6 +1795,13 @@ function init() {
   el('rank-excl-search').addEventListener('keydown', e => { if (e.key === 'Enter') _rankExclAdd(); });
   el('btn-rank-excl-add').addEventListener('click', _rankExclAdd);
 
+  // Time edit
+  el('time-edit-search').addEventListener('input', e => _timeEditShowSuggestions(e.target.value));
+  el('time-edit-search').addEventListener('blur', () => setTimeout(() => el('time-edit-suggestions').classList.add('hidden'), 150));
+  el('btn-time-edit-clear').addEventListener('click', _initTimeEdit);
+  el('btn-time-edit-save').addEventListener('click', _submitTimeEdit);
+  el('time-edit-input').addEventListener('keydown', e => { if (e.key === 'Enter') _submitTimeEdit(); });
+
   // Stats
   el('btn-stats-other').addEventListener('click', _openOtherStats);
   el('btn-other-stats-toggle').onclick = () => {
@@ -1696,6 +1817,7 @@ function init() {
   el('btn-steam-all').addEventListener('click',  () => _steamSelectAll(true));
   el('btn-steam-none').addEventListener('click', () => _steamSelectAll(false));
   el('btn-steam-confirm').addEventListener('click', _steamConfirmImport);
+
 
   // Auth check → démarre l'app (poll) seulement si connecté
   checkAuth();

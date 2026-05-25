@@ -176,6 +176,14 @@ class DataManager:
             return True
         return False
 
+    def set_game_time(self, name: str, seconds: int) -> bool:
+        if name not in self._data.get("games", {}):
+            return False
+        self._data["games"][name]["total_seconds"] = max(0, seconds)
+        self._data["games"][name]["time_edited"] = True
+        self._save()
+        return True
+
     def set_game_flag(self, name: str, flag: str, value) -> bool:
         if name not in self._data.get("games", {}):
             return False

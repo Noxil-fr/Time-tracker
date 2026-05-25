@@ -6,7 +6,7 @@ from datetime import datetime
 import psutil
 
 from data_manager import DataManager
-from icon_cache import get_game_icon, get_pil_icon
+from icon_cache import get_game_icon, get_pil_icon, ICON_DIR, _safe_filename
 from notifications import NotificationManager
 from tracker import ProcessTracker
 from utils import format_duration
@@ -75,6 +75,39 @@ class Api:
     def on_game_start(self, name: str):
         with self._lock:
             self._events.append({"type": "start", "name": name})
+        disk_path = ICON_DIR / (_safe_filename(name) + ".png")
+        if not disk_path.exists():
+            threading.Thread(target=self._fetch_icon_bg, args=(name,), daemon=True).start()
+
+    def _fetch_icon_bg(self, name: str) -> None:
+        game_data = self._dm.get_games().get(name, {})
+        exe_path  = game_data.get("exe_path", "") or ""
+        proc_name = game_data.get("process", "").lower()
+
+        # Cherche l'exe du processus si on ne l'a pas
+        if not exe_path and proc_name:
+            try:
+                for p in psutil.process_iter(["name", "exe"]):
+                    if p.info["name"] and p.info["name"].lower() == proc_name:
+                        found = p.info.get("exe") or ""
+                        if found and not any(d in found.lower() for d in _SKIP_DIRS):
+                            exe_path = found
+                            self._dm.batch_update_exe_paths({name: exe_path})
+                        break
+            except Exception:
+                pass
+
+        img = get_game_icon(name, exe_path, 32)
+
+        if not img:
+            steam_appid = game_data.get("steam_appid", 0)
+            if steam_appid:
+                from icon_cache import fetch_steam_icon
+                img = fetch_steam_icon(name, steam_appid, game_data.get("steam_icon_hash", ""), 32)
+
+        if img:
+            with self._lock:
+                self._events.append({"type": "icon_ready", "name": name})
 
     def on_game_stop(self, name: str, start, end):
         duration = int((end - start).total_seconds())
@@ -114,6 +147,12 @@ class Api:
         if ok:
             self._bump()
         return ok
+
+    def set_game_time(self, name: str, seconds: int) -> dict:
+        ok = self._dm.set_game_time(name, int(seconds))
+        if ok:
+            self._bump()
+        return {"ok": ok}
 
     def set_game_archived(self, name: str, archived: bool) -> dict:
         ok = self._dm.set_game_flag(name, "archived", bool(archived))
