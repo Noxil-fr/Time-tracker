@@ -1,5 +1,6 @@
 import http.server
 import json
+import os
 import queue
 import socket
 import threading
@@ -11,7 +12,7 @@ from pathlib import Path
 
 _SUPABASE_URL = "https://lvhfutmsjdgwchpxrojz.supabase.co"
 _SUPABASE_KEY = "sb_publishable__FDSLgnFmVJsq-6g-J86Uw_xecbLg11"
-_AUTH_FILE    = Path(__file__).parent / "data" / "auth.json"
+_AUTH_FILE    = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker" / "auth.json"
 _TABLE        = "TT_data"
 _TIMEOUT      = 12
 _RESET_PORT   = 37123
