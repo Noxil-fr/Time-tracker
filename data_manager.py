@@ -4,6 +4,7 @@ from pathlib import Path
 
 DATA_FILE       = Path(__file__).parent / "data" / "games.json"
 CHECKPOINT_FILE = Path(__file__).parent / "data" / "active_sessions.json"
+SETTINGS_FILE   = Path(__file__).parent / "data" / "settings.json"
 
 _MIN_RECOVERY_SECONDS = 10  # sessions < 10s ignorées à la récupération
 
@@ -147,6 +148,13 @@ class DataManager:
             return True
         return False
 
+    def set_game_flag(self, name: str, flag: str, value) -> bool:
+        if name not in self._data.get("games", {}):
+            return False
+        self._data["games"][name][flag] = value
+        self._save()
+        return True
+
     def batch_update_exe_paths(self, updates: dict):
         """Persiste {nom: exe_path} pour les jeux sans exe_path. Un seul _save()."""
         changed = False
@@ -159,10 +167,11 @@ class DataManager:
             self._save()
 
     def get_process_map(self) -> dict:
-        """Retourne {exe_lower: nom_du_jeu}"""
+        """Retourne {process_lower: nom_du_jeu} — ignore les jeux sans process."""
         return {
             v["process"].lower(): k
             for k, v in self._data["games"].items()
+            if v.get("process")
         }
 
     def set_games(self, games: dict) -> None:
@@ -194,6 +203,38 @@ class DataManager:
             self._save()
         return merged
 
+    def get_steam_config(self) -> dict:
+        try:
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    s = json.load(f)
+                return {"api_key": s.get("steam_api_key", ""),
+                        "steam_id": s.get("steam_id", "")}
+        except Exception:
+            pass
+        return {"api_key": "", "steam_id": ""}
+
+    def save_steam_config(self, api_key: str, steam_id: str) -> None:
+        SETTINGS_FILE.parent.mkdir(exist_ok=True)
+        try:
+            existing = {}
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+        except Exception:
+            pass
+        existing["steam_api_key"] = api_key
+        existing["steam_id"]      = steam_id
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+
+    def apply_steam_import(self, updates: dict) -> None:
+        """{nom_jeu: secondes_à_ajouter} — incrémente total_seconds sans créer de sessions."""
+        for name, added in updates.items():
+            if name in self._data["games"] and added > 0:
+                self._data["games"][name]["total_seconds"] += added
+        self._save()
+
     def get_all_sessions_in_range(self, start_date: datetime, end_date: datetime) -> dict:
         """Retourne {nom_jeu: total_secondes} pour la période donnée."""
         totals = {}
@@ -203,6 +244,6 @@ class DataManager:
                 for s in data["sessions"]
                 if start_date <= datetime.fromisoformat(s["start"]) <= end_date
             )
-            if total > 0:
+            if total >= 900:
                 totals[name] = total
         return totals

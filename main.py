@@ -2,6 +2,19 @@ import ctypes
 import os
 import sys
 
+# ── Instance unique — AVANT tout import lourd (webview, tracker…) ─────────────
+_MUTEX_NAME = "TimeTracker_SingleInstance_Mutex"
+_mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
+if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    ctypes.windll.user32.MessageBoxW(
+        0,
+        "Time Tracker est déjà en cours d'exécution.\n"
+        "Consultez l'icône dans la barre des tâches.",
+        "Time Tracker",
+        0x40,
+    )
+    sys.exit(0)
+
 import webview
 
 from api import Api
@@ -17,16 +30,7 @@ def _resource_path(relative: str) -> str:
 
 
 def main():
-    # ── Instance unique ───────────────────────────────────────────────────────
-    if not acquire_single_instance_lock():
-        ctypes.windll.user32.MessageBoxW(
-            0,
-            "Time Tracker est déjà en cours d'exécution.\n"
-            "Consultez l'icône dans la barre des tâches.",
-            "Time Tracker",
-            0x40,  # MB_ICONINFORMATION
-        )
-        return
+    # acquire_single_instance_lock déjà effectué au niveau module — pas de double check
 
     start_hidden = "--minimized" in sys.argv
 
@@ -47,7 +51,7 @@ def main():
         url              = _resource_path("web/index.html"),
         js_api           = api_obj,
         width            = 700,
-        height           = 950,
+        height           = 1097,
         min_size         = (600, 500),
         background_color = "#11111b",
     )
