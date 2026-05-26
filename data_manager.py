@@ -1,14 +1,21 @@
 import json
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 
-_APPDATA_DIR    = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker"
+# En mode installé (frozen), données dans {exe}\data\ ; sinon %APPDATA%\TimeTracker\
+if getattr(sys, "frozen", False):
+    _DATA_DIR = Path(sys.executable).parent / "data"
+else:
+    _DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker"
+
+_APPDATA_DIR    = _DATA_DIR   # alias conservé pour compatibilité
 _LEGACY_DIR     = Path(__file__).parent / "data"
 
-DATA_FILE       = _APPDATA_DIR / "games.json"
-CHECKPOINT_FILE = _APPDATA_DIR / "active_sessions.json"
-SETTINGS_FILE   = _APPDATA_DIR / "settings.json"
+DATA_FILE       = _DATA_DIR / "games.json"
+CHECKPOINT_FILE = _DATA_DIR / "active_sessions.json"
+SETTINGS_FILE   = _DATA_DIR / "settings.json"
 
 _MIN_RECOVERY_SECONDS = 10  # sessions < 10s ignorées à la récupération
 
@@ -16,6 +23,7 @@ _MIN_RECOVERY_SECONDS = 10  # sessions < 10s ignorées à la récupération
 class DataManager:
     def __init__(self):
         _APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+        self._data_file = DATA_FILE
         self._migrate_legacy()
         self._data = self._load()
         self._recover_checkpoints()
@@ -44,13 +52,13 @@ class DataManager:
                 pass
 
     def _load(self) -> dict:
-        if DATA_FILE.exists():
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
+        if self._data_file.exists():
+            with open(self._data_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         return {"games": {}}
 
     def _save(self):
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
+        with open(self._data_file, "w", encoding="utf-8") as f:
             json.dump(self._data, f, indent=2, ensure_ascii=False)
 
     # ── Récupération après crash ───────────────────────────────────────────────
@@ -210,9 +218,32 @@ class DataManager:
             if v.get("process")
         }
 
+    def switch_user(self, user_id: str | None) -> None:
+        """Bascule vers le fichier de données de l'utilisateur (ou anonyme si None)."""
+        self._save()
+        self._data_file = (_APPDATA_DIR / f"games_{user_id}.json") if user_id else DATA_FILE
+        self._data = self._load()
+
     def set_games(self, games: dict) -> None:
         self._data["games"] = games
         self._save()
+
+    def reset_all_local_data(self) -> None:
+        """Vide toutes les données de jeux locales : fichier courant + games.json + tous les games_<id>.json."""
+        self._data["games"] = {}
+        self._save()
+        # Vider aussi games.json si ce n'est pas le fichier courant
+        if self._data_file != DATA_FILE:
+            try:
+                DATA_FILE.write_text('{"games": {}}', encoding="utf-8")
+            except Exception:
+                pass
+        # Supprimer tous les fichiers par compte
+        for f in _APPDATA_DIR.glob("games_*.json"):
+            try:
+                f.unlink()
+            except Exception:
+                pass
 
     def merge_games(self, remote_games: dict) -> int:
         """Fusionne les jeux distants dans les données locales (union des sessions).
@@ -238,6 +269,30 @@ class DataManager:
         if merged:
             self._save()
         return merged
+
+    def get_ignored_procs(self) -> set[str]:
+        try:
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    return set(json.load(f).get("ignored_procs", []))
+        except Exception:
+            pass
+        return set()
+
+    def add_ignored_proc(self, proc_name: str) -> None:
+        SETTINGS_FILE.parent.mkdir(exist_ok=True)
+        try:
+            existing = {}
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+        except Exception:
+            pass
+        procs = set(existing.get("ignored_procs", []))
+        procs.add(proc_name.lower())
+        existing["ignored_procs"] = sorted(procs)
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
 
     def get_steam_config(self) -> dict:
         try:

@@ -133,10 +133,13 @@ class ProcessTracker:
         # game_name -> (score, proc_name, exe)
         candidates: dict[str, tuple[int, str, str]] = {}
 
+        ignored = self._dm.get_ignored_procs()
         for name_lower, exe in running.items():
             if name_lower in prev_procs:
                 continue
             if name_lower in tracked or name_lower in self._suggested:
+                continue
+            if name_lower in ignored:
                 continue
             if not exe:
                 continue
