@@ -31,7 +31,8 @@ class Api:
         self._events: list = []
         self._lock    = threading.Lock()
         self._version = 0
-        self._quit_cb = None
+        self._quit_cb       = None
+        self._pending_update = None   # {"version": ..., "url": ...} dès qu'une MAJ est trouvée
 
         self._notif.set_on_add_game(self._notif_add_game)
         self._notif.set_on_ignore_game(self._notif_ignore_game)
@@ -76,6 +77,7 @@ class Api:
             "games":   games,
             "active":  active,
             "events":  events,
+            "update":  self._pending_update,
         }
 
     # ── Callbacks tracker ─────────────────────────────────────────────────────
@@ -529,28 +531,30 @@ class Api:
     def set_quit_callback(self, cb) -> None:
         self._quit_cb = cb
 
-    def check_update(self) -> dict:
-        """Interroge l'API GitHub Releases pour voir si une mise à jour est disponible."""
-        import urllib.request
-        import json as _json
-        try:
-            url = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
-            req = urllib.request.Request(url, headers={"User-Agent": "TimeTracker"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = _json.loads(resp.read())
-            tag = data.get("tag_name", "").lstrip("v")
-            if not tag or tag == _VERSION:
-                return {"available": False}
-            assets = data.get("assets", [])
-            exe_url = next(
-                (a["browser_download_url"] for a in assets if a["name"].endswith(".exe")),
-                None,
-            )
-            if not exe_url:
-                return {"available": False}
-            return {"available": True, "version": tag, "url": exe_url}
-        except Exception:
-            return {"available": False}
+    def check_update(self) -> None:
+        """Lance la vérification de mise à jour en arrière-plan et pousse un événement."""
+        def _do():
+            import urllib.request
+            import json as _json
+            try:
+                url = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
+                req = urllib.request.Request(url, headers={"User-Agent": "TimeTracker"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = _json.loads(resp.read())
+                tag = data.get("tag_name", "").lstrip("v")
+                if not tag or tag == _VERSION:
+                    return
+                assets = data.get("assets", [])
+                exe_url = next(
+                    (a["browser_download_url"] for a in assets if a["name"].endswith(".exe")),
+                    None,
+                )
+                if not exe_url:
+                    return
+                self._pending_update = {"version": tag, "url": exe_url}
+            except Exception:
+                pass
+        threading.Thread(target=_do, daemon=True).start()
 
     def start_update(self, url: str) -> None:
         """Télécharge le setup en arrière-plan et émet des événements de progression."""

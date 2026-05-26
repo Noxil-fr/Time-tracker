@@ -149,6 +149,9 @@ async function poll() {
     const activeChanged = Object.keys(S.active).sort().join('\0') !== prevActiveKey;
     _updateTimers();
     for (const ev of (data.events || [])) _handleEvent(ev);
+    if (data.update && el('btn-update').classList.contains('hidden')) {
+      _onUpdateAvailable(data.update.version, data.update.url);
+    }
     if (data.version !== S.version || activeChanged) {
       S.version = data.version;
       S.games   = data.games || {};
@@ -1765,13 +1768,15 @@ async function _signOut() {
 
 let _updatePath = null;
 
-async function _checkUpdate() {
-  const r = await api('check_update');
-  if (!r || !r.available) return;
+function _checkUpdate() {
+  api('check_update'); // fire-and-forget, résultat via événement poll
+}
+
+function _onUpdateAvailable(version, url) {
   const btn = el('btn-update');
-  btn.textContent = `↑ v${r.version} disponible`;
+  btn.textContent = `↑ v${version} disponible`;
   btn.classList.remove('hidden', 'downloading', 'ready');
-  btn.onclick = () => _startDownload(r.url);
+  btn.onclick = () => _startDownload(url);
 }
 
 async function _startDownload(url) {
