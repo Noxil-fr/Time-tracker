@@ -17,6 +17,9 @@ _SKIP_DIRS = (
     "\\windows\\winsxs\\",
 )
 
+_VERSION     = "1.0"
+_GITHUB_REPO = "Noxil-fr/Time-tracker"
+
 
 class Api:
     def __init__(self, dm: DataManager, sync=None):
@@ -28,11 +31,16 @@ class Api:
         self._events: list = []
         self._lock    = threading.Lock()
         self._version = 0
+        self._quit_cb = None
 
         self._notif.set_on_add_game(self._notif_add_game)
+        self._notif.set_on_ignore_game(self._notif_ignore_game)
 
     def _notif_add_game(self, game_name: str, proc_name: str, exe_path: str) -> None:
         self.add_game(game_name, proc_name, exe_path)
+
+    def _notif_ignore_game(self, proc_name: str) -> None:
+        self._dm.add_ignored_proc(proc_name)
 
     def set_tracker(self, tracker: ProcessTracker):
         self._tracker = tracker
@@ -105,6 +113,19 @@ class Api:
                 from icon_cache import fetch_steam_icon
                 img = fetch_steam_icon(name, steam_appid, game_data.get("steam_icon_hash", ""), 32)
 
+        if not img:
+            from icon_cache import fetch_steam_icon_by_name
+            img = fetch_steam_icon_by_name(name, 32)
+
+        if not img and not exe_path:
+            from icon_cache import find_exe_by_process
+            proc = game_data.get("process", "")
+            if proc:
+                found = find_exe_by_process(proc)
+                if found:
+                    self._dm.batch_update_exe_paths({name: found})
+                    img = get_game_icon(name, found, 32)
+
         if img:
             with self._lock:
                 self._events.append({"type": "icon_ready", "name": name})
@@ -153,6 +174,18 @@ class Api:
         if ok:
             self._bump()
         return {"ok": ok}
+
+    def reset_local_data(self) -> dict:
+        self._dm.reset_all_local_data()
+        if self._sync:
+            self._sync.clear_local_session()
+        self._bump()
+        return {"ok": True}
+
+    def reset_cloud_data(self) -> dict:
+        if not self._sync:
+            return {"ok": False, "error": "Non connecté"}
+        return self._sync.reset_cloud_data()
 
     def set_game_archived(self, name: str, archived: bool) -> dict:
         ok = self._dm.set_game_flag(name, "archived", bool(archived))
@@ -270,13 +303,24 @@ class Api:
                         pass
         pil_img = get_game_icon(game_name, exe_path or "", 32)
         if not pil_img:
-            # Fallback : icône Steam CDN (icône hash puis header image)
             game_data   = self._dm.get_games().get(game_name, {})
             steam_appid = game_data.get("steam_appid", 0)
             if steam_appid:
                 steam_icon = game_data.get("steam_icon_hash", "")
                 from icon_cache import fetch_steam_icon
                 pil_img = fetch_steam_icon(game_name, steam_appid, steam_icon, 32)
+        if not pil_img:
+            from icon_cache import fetch_steam_icon_by_name
+            pil_img = fetch_steam_icon_by_name(game_name, 32)
+        if not pil_img and not exe_path:
+            # Dernière chance : trouver l'exe sur disque et en extraire l'icône
+            from icon_cache import find_exe_by_process
+            proc = self._dm.get_games().get(game_name, {}).get("process", "")
+            if proc:
+                found = find_exe_by_process(proc)
+                if found:
+                    self._dm.batch_update_exe_paths({game_name: found})
+                    pil_img = get_game_icon(game_name, found, 32)
         if not pil_img:
             return ""
         buf = io.BytesIO()
@@ -360,8 +404,8 @@ class Api:
         if not self._sync:
             return {"ok": True, "merged": 0}
         result = self._sync.pull_on_start()
-        if result.get("ok") and result.get("merged", 0) > 0:
-            self._version += 1   # bump sans déclencher un push inutile
+        if result.get("ok"):
+            self._version += 1  # toujours bumper : switch_user change les données même si merged=0
         return result
 
     # ── Notifications flottantes ──────────────────────────────────────────────
@@ -479,6 +523,75 @@ class Api:
             "added_seconds": sum(updates.values()),
             "created":      created,
         }
+
+    # ── Mise à jour automatique ───────────────────────────────────────────────
+
+    def set_quit_callback(self, cb) -> None:
+        self._quit_cb = cb
+
+    def check_update(self) -> dict:
+        """Interroge l'API GitHub Releases pour voir si une mise à jour est disponible."""
+        import urllib.request
+        import json as _json
+        try:
+            url = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
+            req = urllib.request.Request(url, headers={"User-Agent": "TimeTracker"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read())
+            tag = data.get("tag_name", "").lstrip("v")
+            if not tag or tag == _VERSION:
+                return {"available": False}
+            assets = data.get("assets", [])
+            exe_url = next(
+                (a["browser_download_url"] for a in assets if a["name"].endswith(".exe")),
+                None,
+            )
+            if not exe_url:
+                return {"available": False}
+            return {"available": True, "version": tag, "url": exe_url}
+        except Exception:
+            return {"available": False}
+
+    def start_update(self, url: str) -> None:
+        """Télécharge le setup en arrière-plan et émet des événements de progression."""
+        import urllib.request
+        import tempfile
+        import os
+
+        def _download():
+            try:
+                dest = os.path.join(tempfile.gettempdir(), "TimeTracker_Update.exe")
+                with urllib.request.urlopen(url, timeout=120) as resp:
+                    total = int(resp.headers.get("Content-Length") or 0)
+                    downloaded = 0
+                    with open(dest, "wb") as f:
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                pct = int(downloaded * 100 / total)
+                                with self._lock:
+                                    self._events.append({"type": "update_progress", "pct": pct})
+                with self._lock:
+                    self._events.append({"type": "update_ready", "path": dest})
+            except Exception as e:
+                with self._lock:
+                    self._events.append({"type": "update_error", "error": str(e)})
+
+        threading.Thread(target=_download, daemon=True).start()
+
+    def install_update(self, path: str) -> None:
+        """Lance l'installeur en mode silencieux puis quitte l'application."""
+        import subprocess
+        import os
+        if not os.path.isfile(path):
+            return
+        subprocess.Popen([path, "/VERYSILENT", "/NORESTART", "/CLOSEAPPLICATIONS"])
+        if self._quit_cb:
+            threading.Thread(target=self._quit_cb, daemon=True).start()
 
     # ── Utilitaires ──────────────────────────────────────────────────────────
 

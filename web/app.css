@@ -133,6 +133,24 @@ body {
 }
 .btn-red:hover { background: var(--red-dim); }
 
+.btn-danger {
+  background: transparent; color: var(--red);
+  border: 1px solid var(--red); border-radius: var(--radius);
+  font: 600 13px var(--font); padding: 8px 16px;
+  cursor: pointer; transition: background .15s, color .15s;
+}
+.btn-danger:hover { background: var(--red); color: var(--crust); }
+.btn-danger:disabled { opacity: .4; cursor: default; }
+
+.data-reset-section  { display: flex; flex-direction: column; padding: 8px 0; }
+.data-reset-row      { display: flex; align-items: center; justify-content: space-between;
+                       gap: 16px; padding: 14px 20px; }
+.data-reset-info     { display: flex; flex-direction: column; gap: 3px; }
+.data-reset-label    { font: 600 13px var(--font); color: var(--text); }
+.data-reset-desc     { font: 12px var(--font); color: var(--subtext0); }
+.data-reset-status   { font: 11px var(--font); margin: 0; min-height: 14px; }
+.data-reset-divider  { height: 1px; background: var(--surface0); margin: 0 20px; }
+
 .btn-muted {
   background: var(--surface0); color: var(--text);
   border: none; border-radius: var(--radius);
@@ -711,6 +729,24 @@ body {
   padding: 1px 6px;
   color: var(--text);
 }
+
+/* ── Bouton mise à jour ───────────────────────────────────────────────── */
+.btn-update {
+  background: var(--peach); color: var(--crust);
+  border: none; border-radius: var(--radius);
+  font: 700 12px var(--font); padding: 7px 14px;
+  cursor: pointer; transition: background .15s, opacity .15s;
+  white-space: nowrap; flex-shrink: 0;
+}
+.btn-update:hover { background: #c8883a; }
+.btn-update.downloading {
+  background: var(--surface1); color: var(--subtext0);
+  cursor: default;
+}
+.btn-update.ready {
+  background: var(--green); color: var(--crust);
+}
+.btn-update.ready:hover { background: var(--green-dim); }
 
 /* ── Bouton compte ────────────────────────────────────────────────────── */
 .btn-account {

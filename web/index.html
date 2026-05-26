@@ -24,6 +24,7 @@
         <button class="tab-btn" data-tab="stats">📊 Statistiques</button>
       </nav>
       <span class="f5-hint"><kbd>F5</kbd> to refresh</span>
+      <button id="btn-update" class="btn-update hidden" title="Mise à jour disponible"></button>
       <button id="btn-account" class="btn-account" title="Paramètres">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
@@ -215,8 +216,9 @@
       <div id="settings-section" class="hidden">
         <div class="settings-tabs">
           <button class="settings-tab active" data-stab="steam">Steam</button>
-          <button class="settings-tab" data-stab="rank">Classement</button>
-          <button class="settings-tab" data-stab="time">Temps</button>
+          <button class="settings-tab" data-stab="rank">Exclusion</button>
+          <button class="settings-tab" data-stab="time">Modifier</button>
+          <button class="settings-tab" data-stab="data">Données</button>
         </div>
 
         <!-- Onglet Classement -->
@@ -253,6 +255,29 @@
               <button id="btn-time-edit-save" class="btn-blue btn-sm">Appliquer</button>
             </div>
             <p id="time-edit-error" class="account-error"></p>
+          </div>
+        </div>
+
+        <!-- Onglet Données -->
+        <div id="stab-data" class="stab-pane">
+          <div class="data-reset-section">
+            <div class="data-reset-row">
+              <div class="data-reset-info">
+                <div class="data-reset-label">Données locales</div>
+                <div class="data-reset-desc">Jeux et sessions sur cet appareil.</div>
+                <p id="reset-local-status" class="data-reset-status"></p>
+              </div>
+              <button id="btn-reset-local" class="btn-danger">Réinitialiser</button>
+            </div>
+            <div class="data-reset-divider"></div>
+            <div class="data-reset-row">
+              <div class="data-reset-info">
+                <div class="data-reset-label">Données cloud</div>
+                <div class="data-reset-desc">Vos données sur le serveur Supabase.</div>
+                <p id="reset-cloud-status" class="data-reset-status"></p>
+              </div>
+              <button id="btn-reset-cloud" class="btn-danger" disabled>Réinitialiser</button>
+            </div>
           </div>
         </div>
 

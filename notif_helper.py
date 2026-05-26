@@ -126,6 +126,11 @@ def _make_window(data: dict) -> tk.Tk:
             sys.stdout.flush()
             root.destroy()
 
+        def _ignore_forever():
+            sys.stdout.write("ignore\n")
+            sys.stdout.flush()
+            root.destroy()
+
         add = tk.Label(act, text="Ajouter →", bg=accent, fg=_MANTLE,
                        font=("Segoe UI", 9, "bold"), padx=14, pady=5, cursor="hand2")
         add.pack(side="right")
@@ -139,6 +144,13 @@ def _make_window(data: dict) -> tk.Tk:
         ign.bind("<Button-1>", lambda _: root.destroy())
         ign.bind("<Enter>",    lambda _: ign.config(bg=_SURF2, fg=_TEXT))
         ign.bind("<Leave>",    lambda _: ign.config(bg=_SURF1, fg=_SUB))
+
+        never = tk.Label(act, text="Ne plus proposer", bg=_SURF1, fg=_SUB,
+                         font=("Segoe UI", 9), padx=14, pady=5, cursor="hand2")
+        never.pack(side="left")
+        never.bind("<Button-1>", lambda _: _ignore_forever())
+        never.bind("<Enter>",    lambda _: never.config(bg=_SURF2, fg=_TEXT))
+        never.bind("<Leave>",    lambda _: never.config(bg=_SURF1, fg=_SUB))
 
     else:
         root.after(5000, root.destroy)

@@ -1,5 +1,5 @@
 ; ── Time Tracker — Script Inno Setup ────────────────────────────────────────
-; Génère un installeur Windows autonome (pas de droits admin requis).
+; Génère un installeur Windows (droits admin requis, C:\Program Files\TimeTracker).
 ; Prérequis : Inno Setup 6  →  https://jrsoftware.org/isinfo.php
 
 #define MyAppName      "Time Tracker"
@@ -16,12 +16,11 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppSupportURL=https://github.com/
 
-; Installation dans %LocalAppData%\Programs\ — pas de droits admin
-DefaultDirName={localappdata}\Programs\{#MyAppName}
+; Installation dans C:\Program Files\TimeTracker — droits admin
+DefaultDirName={commonpf}\TimeTracker
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequired=admin
 
 ; Icône & apparence
 SetupIconFile=..\assets\icon.ico
@@ -34,6 +33,9 @@ OutputBaseFilename=TimeTracker_Setup_v{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 
+; Ferme l'app si elle tourne avant d'installer (mise à jour silencieuse)
+CloseApplications=yes
+
 ; Langue
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
@@ -44,6 +46,11 @@ Name: "desktopicon"; \
   Description: "Créer un raccourci sur le Bureau"; \
   GroupDescription: "Raccourcis :"; \
   Flags: unchecked
+
+; ── Dossiers ─────────────────────────────────────────────────────────────────
+[Dirs]
+; data\ : droits en écriture pour l'utilisateur courant (app tourne sans admin)
+Name: "{app}\data"; Permissions: users-modify
 
 ; ── Fichiers à installer ─────────────────────────────────────────────────────
 [Files]
@@ -56,6 +63,11 @@ Source: "..\dist\TimeTracker\_internal\*"; \
   DestDir: "{app}\_internal"; \
   Flags: ignoreversion recursesubdirs createallsubdirs; \
   Excludes: "data\games.json,data\auth.json,data\settings.json"
+
+; Dossier data\ — games.json initial (uniquement si absent)
+Source: "..\dist\TimeTracker\_internal\data\games.json"; \
+  DestDir: "{app}\data"; \
+  Flags: onlyifdoesntexist
 
 ; ── Icônes / raccourcis ───────────────────────────────────────────────────────
 [Icons]
@@ -87,17 +99,14 @@ Filename: "{app}\{#MyAppExeName}"; \
   Flags: nowait postinstall skipifsilent
 
 ; ── Message de désinstallation ────────────────────────────────────────────────
-[UninstallRun]
-; Les données utilisateur (%AppData%\TimeTracker) sont conservées.
-
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
     MsgBox(
       'Time Tracker a été désinstallé.' + #13#10 +
-      'Vos données (historique, paramètres) sont conservées dans :' + #13#10 +
-      ExpandConstant('{userappdata}\TimeTracker'),
+      'Vos données (jeux, historique) sont conservées dans :' + #13#10 +
+      ExpandConstant('{app}\data'),
       mbInformation, MB_OK
     );
 end;

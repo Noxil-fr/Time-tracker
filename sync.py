@@ -12,7 +12,10 @@ from pathlib import Path
 
 _SUPABASE_URL = "https://lvhfutmsjdgwchpxrojz.supabase.co"
 _SUPABASE_KEY = "sb_publishable__FDSLgnFmVJsq-6g-J86Uw_xecbLg11"
-_AUTH_FILE    = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker" / "auth.json"
+if getattr(__import__("sys"), "frozen", False):
+    _AUTH_FILE = Path(__import__("sys").executable).parent / "data" / "auth.json"
+else:
+    _AUTH_FILE = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker" / "auth.json"
 _TABLE        = "TT_data"
 _TIMEOUT      = 12
 _RESET_PORT   = 37123
@@ -105,6 +108,10 @@ class SyncManager:
         except Exception:
             pass
 
+    def clear_local_session(self) -> None:
+        """Supprime la session locale (auth.json) sans appeler l'API Supabase."""
+        self._clear_session()
+
     def _store_session(self, data: dict):
         self._session = {
             "access_token":  data["access_token"],
@@ -142,7 +149,7 @@ class SyncManager:
                     self._store_session(data)
                     return {"ok": True, "email": self._session["email"]}
                 if data.get("id") or data.get("email"):
-                    return {"ok": False, "error": "Compte cree - verifie ton email pour confirmer."}
+                    return {"ok": False, "needs_confirm": True, "error": "Compte créé — vérifie ton email pour confirmer."}
             msg = (data.get("msg") or data.get("message")
                    or data.get("error_description") or f"Erreur HTTP {status}")
             return {"ok": False, "error": msg}
@@ -368,12 +375,30 @@ class SyncManager:
             return {"ok": False, "error": f"HTTP {status}: {data}"}
         return _run_threaded(_do)
 
+    def reset_cloud_data(self) -> dict:
+        if not self._session.get("access_token"):
+            return {"ok": False, "error": "Non connecté"}
+
+        def _do():
+            payload = {
+                "user_id":    self._session["user_id"],
+                "games":      {},
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            hdrs = {**self._headers(), "Prefer": "resolution=merge-duplicates"}
+            status, data = _http("POST", self._rest_url(f"/{_TABLE}"), payload, hdrs)
+            if status in (200, 201):
+                return {"ok": True}
+            return {"ok": False, "error": f"HTTP {status}: {data}"}
+        return _run_threaded(_do)
+
     def pull_on_start(self) -> dict:
         if not self._session.get("access_token"):
             return {"ok": False, "error": "Non connecte"}
 
         def _do():
             user_id = self._session["user_id"]
+            self._dm.switch_user(user_id)
             url = self._rest_url(
                 f"/{_TABLE}?user_id=eq.{user_id}&select=games,updated_at"
             )

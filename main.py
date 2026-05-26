@@ -74,6 +74,7 @@ def main():
         _quitting[0] = True
         window.destroy()
 
+    api_obj.set_quit_callback(_quit)
     tray = TrayManager(window, quit_callback=_quit)
 
     def setup(w):

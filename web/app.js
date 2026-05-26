@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 // ── Palette donut ──────────────────────────────────────────────────────────
 const COLORS = ['#4a9eff','#22c55e','#f97316','#e05252',
@@ -187,6 +187,12 @@ function _handleEvent(ev) {
     delete S.icons[ev.name];
     const game = S.games[ev.name];
     if (game) _loadIconsForGame(ev.name, game.exe_path || '');
+  } else if (ev.type === 'update_progress') {
+    _onUpdateProgress(ev.pct);
+  } else if (ev.type === 'update_ready') {
+    _onUpdateReady(ev.path);
+  } else if (ev.type === 'update_error') {
+    _onUpdateError();
   }
 }
 
@@ -332,7 +338,7 @@ function _rankHTML(rank) {
   if (!rank) return '';
   const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
   const cls   = rank <= 3 ? ' rank-top' : '';
-  return `<span class="rank-label${cls}">${medal ? medal + ' ' : ''}#${rank}</span>`;
+  return `<span class="rank-label${cls}">#${rank}${medal ? ' ' + medal : ''}</span>`;
 }
 
 function _gameCardHTML(name, data, maxSecs, rank) {
@@ -1079,7 +1085,7 @@ async function checkAuth() {
   if (s.logged_in) {
     _updateAccountBtn(s.email);
     _setOfflineBanner(false);
-    api('sync_pull_on_start').then(() => api('sync_push_now'));
+    _syncNow();
   } else {
     _setOfflineBanner(true);
   }
@@ -1087,6 +1093,11 @@ async function checkAuth() {
 
 function _setOfflineBanner(visible) {
   el('offline-banner').classList.toggle('hidden', !visible);
+}
+
+async function _syncNow() {
+  await api('sync_pull_on_start');
+  await api('sync_push_now');
 }
 
 function _startApp() {
@@ -1251,6 +1262,49 @@ function _setSettingsTab(stab) {
     p.classList.toggle('active', p.id === 'stab-' + stab));
   if (stab === 'rank') _renderRankExclusions();
   if (stab === 'time') _initTimeEdit();
+}
+
+async function _resetLocalData() {
+  const btn = el('btn-reset-local');
+  const status = el('reset-local-status');
+  if (!confirm('Supprimer toutes les données locales ? Cette action est irréversible.')) return;
+  btn.disabled = true;
+  status.style.color = '';
+  status.textContent = '…';
+  const r = await api('reset_local_data');
+  btn.disabled = false;
+  if (r && r.ok) {
+    status.style.color = 'var(--green)';
+    status.textContent = 'Données supprimées. Reconnectez-vous si besoin.';
+    S.version = -1;
+    // La session a été effacée : mettre l'UI en état déconnecté
+    el('btn-account').classList.remove('logged-in');
+    el('btn-account').title = 'Paramètres';
+    el('btn-reset-local').disabled = false;
+    el('btn-reset-cloud').disabled = true;
+    _setOfflineBanner(false);
+  } else {
+    status.style.color = 'var(--red)';
+    status.textContent = 'Erreur.';
+  }
+}
+
+async function _resetCloudData() {
+  const btn = el('btn-reset-cloud');
+  const status = el('reset-cloud-status');
+  if (!confirm('Supprimer toutes vos données cloud ? Cette action est irréversible.')) return;
+  btn.disabled = true;
+  status.style.color = '';
+  status.textContent = '…';
+  const r = await api('reset_cloud_data');
+  btn.disabled = false;
+  if (r && r.ok) {
+    status.style.color = 'var(--green)';
+    status.textContent = 'Données cloud supprimées.';
+  } else {
+    status.style.color = 'var(--red)';
+    status.textContent = r?.error || 'Erreur (connectez-vous d\'abord).';
+  }
 }
 
 let _rankExclSelected = '';
@@ -1483,7 +1537,6 @@ async function _openAccount() {
   } else {
     _showLoginModal(/*mandatory=*/false);
   }
-  _setSettingsTab('steam');
   _steamLoadConfig();
   _steamStatus('', '');
 }
@@ -1498,6 +1551,9 @@ function _showLoginModal(mandatory) {
   el('settings-section').classList.remove('hidden');
   el('modal-close-account').classList.toggle('hidden', mandatory);
   el('account-error').textContent = '';
+  document.querySelectorAll('.settings-tab').forEach(t =>
+    t.classList.toggle('hidden', t.dataset.stab !== 'data'));
+  _setSettingsTab('data');
   _setAccountTab('login');
   _showOverlay('modal-account', /*canClose=*/false);
 }
@@ -1513,6 +1569,10 @@ function _showAccountLoggedIn(email) {
   el('settings-section').classList.remove('hidden');
   el('account-logged-email').textContent = email;
   el('modal-close-account').classList.remove('hidden');
+  el('btn-reset-local').disabled = true;
+  el('btn-reset-cloud').disabled = false;
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('hidden'));
+  _setSettingsTab('steam');
 }
 
 function _showOverlay(modalId, canClose = true) {
@@ -1560,8 +1620,12 @@ async function _submitAccount() {
     _showAccountLoggedIn(r.email);
     _updateAccountBtn(r.email);
     closeModal();
-    api('sync_pull_on_start').then(() => api('sync_push_now'));
+    _syncNow();
+  } else if (r && r.needs_confirm) {
+    errEl.style.color = 'var(--green)';
+    errEl.textContent = r.error;
   } else {
+    errEl.style.color = '';
     errEl.textContent = (r && r.error) || 'Erreur inconnue';
   }
 }
@@ -1691,8 +1755,51 @@ async function _signOut() {
   await api('sync_sign_out');
   el('btn-account').classList.remove('logged-in');
   el('btn-account').title = 'Paramètres';
+  el('btn-reset-local').disabled = false;
+  el('btn-reset-cloud').disabled = true;
   _setOfflineBanner(true);
   _showLoginModal(/*mandatory=*/false);
+}
+
+// ── Mise à jour automatique ────────────────────────────────────────────────
+
+let _updatePath = null;
+
+async function _checkUpdate() {
+  const r = await api('check_update');
+  if (!r || !r.available) return;
+  const btn = el('btn-update');
+  btn.textContent = `↑ v${r.version} disponible`;
+  btn.classList.remove('hidden', 'downloading', 'ready');
+  btn.onclick = () => _startDownload(r.url);
+}
+
+async function _startDownload(url) {
+  const btn = el('btn-update');
+  btn.classList.add('downloading');
+  btn.classList.remove('ready');
+  btn.textContent = 'Téléchargement…';
+  btn.onclick = null;
+  await api('start_update', url);
+}
+
+function _onUpdateProgress(pct) {
+  const btn = el('btn-update');
+  btn.textContent = `Téléchargement ${pct}%`;
+}
+
+function _onUpdateReady(path) {
+  _updatePath = path;
+  const btn = el('btn-update');
+  btn.classList.remove('downloading');
+  btn.classList.add('ready');
+  btn.textContent = 'Installer maintenant';
+  btn.onclick = () => api('install_update', path);
+}
+
+function _onUpdateError() {
+  const btn = el('btn-update');
+  btn.classList.add('hidden');
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -1818,9 +1925,16 @@ function init() {
   el('btn-steam-none').addEventListener('click', () => _steamSelectAll(false));
   el('btn-steam-confirm').addEventListener('click', _steamConfirmImport);
 
+  // Données
+  el('btn-reset-local').addEventListener('click', _resetLocalData);
+  el('btn-reset-cloud').addEventListener('click', _resetCloudData);
+
 
   // Auth check → démarre l'app (poll) seulement si connecté
   checkAuth();
+
+  // Vérification de mise à jour différée (5 s après le démarrage)
+  setTimeout(_checkUpdate, 5000);
 }
 
 // Wait for pywebview bridge or fallback to DOMContentLoaded
