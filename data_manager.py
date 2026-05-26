@@ -261,8 +261,14 @@ class DataManager:
                     if s["start"] not in local_starts:
                         local.setdefault("sessions", []).append(s)
                         added += 1
-                if added:
-                    local["total_seconds"] = sum(
+                # Prend le max des steam_seconds des deux côtés
+                local_steam  = local.get("steam_seconds", 0)
+                remote_steam = remote.get("steam_seconds", 0)
+                best_steam   = max(local_steam, remote_steam)
+                if best_steam != local_steam:
+                    local["steam_seconds"] = best_steam
+                if added or best_steam != local_steam:
+                    local["total_seconds"] = best_steam + sum(
                         s["duration"] for s in local["sessions"]
                     )
                     merged += 1
@@ -320,10 +326,12 @@ class DataManager:
             json.dump(existing, f, indent=2, ensure_ascii=False)
 
     def apply_steam_import(self, updates: dict) -> None:
-        """{nom_jeu: secondes_à_ajouter} — incrémente total_seconds sans créer de sessions."""
+        """{nom_jeu: secondes_à_ajouter} — incrémente total_seconds et steam_seconds sans créer de sessions."""
         for name, added in updates.items():
             if name in self._data["games"] and added > 0:
-                self._data["games"][name]["total_seconds"] += added
+                game = self._data["games"][name]
+                game["steam_seconds"] = game.get("steam_seconds", 0) + added
+                game["total_seconds"] += added
         self._save()
 
     def get_all_sessions_in_range(self, start_date: datetime, end_date: datetime) -> dict:
