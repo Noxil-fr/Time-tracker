@@ -96,7 +96,7 @@ Root: HKCU; \
 [Run]
 Filename: "{app}\{#MyAppExeName}"; \
   Description: "Lancer {#MyAppName}"; \
-  Flags: nowait postinstall skipifsilent
+  Flags: nowait postinstall
 
 ; ── Message de désinstallation ────────────────────────────────────────────────
 [Code]

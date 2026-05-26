@@ -594,8 +594,17 @@ class Api:
         if not os.path.isfile(path):
             return
         subprocess.Popen([path, "/VERYSILENT", "/NORESTART", "/CLOSEAPPLICATIONS"])
-        if self._quit_cb:
-            threading.Thread(target=self._quit_cb, daemon=True).start()
+        def _do_quit():
+            # Stopper le tray en premier pour que le processus puisse vraiment quitter
+            # et libérer le mutex — sinon la nouvelle version ne peut pas démarrer.
+            if self._tray and self._tray._icon:
+                try:
+                    self._tray._icon.stop()
+                except Exception:
+                    pass
+            if self._quit_cb:
+                self._quit_cb()
+        threading.Thread(target=_do_quit, daemon=True).start()
 
     # ── Utilitaires ──────────────────────────────────────────────────────────
 

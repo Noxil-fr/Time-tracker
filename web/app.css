@@ -731,22 +731,62 @@ body {
 }
 
 /* ── Bouton mise à jour ───────────────────────────────────────────────── */
-.btn-update {
-  background: var(--peach); color: var(--crust);
-  border: none; border-radius: var(--radius);
-  font: 700 12px var(--font); padding: 7px 14px;
-  cursor: pointer; transition: background .15s, opacity .15s;
-  white-space: nowrap; flex-shrink: 0;
+@keyframes update-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224,160,80,0); }
+  50%       { box-shadow: 0 0 7px 2px rgba(224,160,80,.22); }
 }
-.btn-update:hover { background: #c8883a; }
+@keyframes update-glow-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  50%       { box-shadow: 0 0 7px 2px rgba(34,197,94,.22); }
+}
+
+.btn-update {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 13px;
+  border-radius: 20px;
+  border: 1.5px solid rgba(224,160,80,.65);
+  background: rgba(224,160,80,.08);
+  color: var(--peach);
+  font: 600 12px var(--font);
+  cursor: pointer;
+  white-space: nowrap; flex-shrink: 0;
+  transition: background .2s, border-color .2s, color .2s;
+  animation: update-glow 2.5s ease-in-out infinite;
+}
+.btn-update:hover {
+  background: rgba(224,160,80,.18);
+  border-color: var(--peach);
+}
+/* Barre de progression (::before rempli de gauche à droite) */
+.btn-update::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    rgba(255,255,255,.06) var(--p, 0%),
+    transparent          var(--p, 0%));
+  pointer-events: none;
+}
 .btn-update.downloading {
-  background: var(--surface1); color: var(--subtext0);
+  animation: none;
+  border-color: var(--surface2);
+  background: transparent;
+  color: var(--subtext0);
   cursor: default;
 }
+.btn-update.downloading:hover { background: transparent; }
 .btn-update.ready {
-  background: var(--green); color: var(--crust);
+  animation: update-glow-green 2.5s ease-in-out infinite;
+  border-color: rgba(34,197,94,.65);
+  background: rgba(34,197,94,.08);
+  color: var(--green);
 }
-.btn-update.ready:hover { background: var(--green-dim); }
+.btn-update.ready:hover {
+  background: rgba(34,197,94,.18);
+  border-color: var(--green);
+}
 
 /* ── Bouton compte ────────────────────────────────────────────────────── */
 .btn-account {

@@ -1774,7 +1774,7 @@ function _checkUpdate() {
 
 function _onUpdateAvailable(version, url) {
   const btn = el('btn-update');
-  btn.textContent = `↑ v${version} disponible`;
+  btn.innerHTML = `<span>↑</span><span>v${version} disponible</span>`;
   btn.classList.remove('hidden', 'downloading', 'ready');
   btn.onclick = () => _startDownload(url);
 }
@@ -1783,22 +1783,24 @@ async function _startDownload(url) {
   const btn = el('btn-update');
   btn.classList.add('downloading');
   btn.classList.remove('ready');
-  btn.textContent = 'Téléchargement…';
+  btn.innerHTML = `<span>↓</span><span>0%</span>`;
   btn.onclick = null;
   await api('start_update', url);
 }
 
 function _onUpdateProgress(pct) {
   const btn = el('btn-update');
-  btn.textContent = `Téléchargement ${pct}%`;
+  btn.style.setProperty('--p', pct + '%');
+  btn.innerHTML = `<span>↓</span><span>${pct}%</span>`;
 }
 
 function _onUpdateReady(path) {
   _updatePath = path;
   const btn = el('btn-update');
+  btn.style.removeProperty('--p');
   btn.classList.remove('downloading');
   btn.classList.add('ready');
-  btn.textContent = 'Installer maintenant';
+  btn.innerHTML = `<span>✓</span><span>Installer</span>`;
   btn.onclick = () => api('install_update', path);
 }
 
