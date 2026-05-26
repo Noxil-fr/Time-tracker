@@ -58,8 +58,9 @@ def main():
     )
     api_obj.set_tracker(tracker)
 
+    from api import _VERSION
     window = webview.create_window(
-        "Time Tracker v1.0",
+        f"Time Tracker v{_VERSION}",
         url              = _resource_path("web/index.html"),
         js_api           = api_obj,
         width            = 700,
