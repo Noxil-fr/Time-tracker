@@ -3,7 +3,7 @@
 ; Prérequis : Inno Setup 6  →  https://jrsoftware.org/isinfo.php
 
 #define MyAppName      "Time Tracker"
-#define MyAppVersion   "1.0"
+#define MyAppVersion   "1.1"
 #define MyAppPublisher "Antoine"
 #define MyAppExeName   "TimeTracker.exe"
 #define MyAppId        "FC2BFA72-5F24-4C4C-9F61-5933CB450A5E"
