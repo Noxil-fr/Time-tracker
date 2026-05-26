@@ -85,28 +85,48 @@ class Api:
     def on_game_start(self, name: str):
         with self._lock:
             self._events.append({"type": "start", "name": name})
-        disk_path = ICON_DIR / (_safe_filename(name) + ".png")
-        if not disk_path.exists():
-            threading.Thread(target=self._fetch_icon_bg, args=(name,), daemon=True).start()
+        # Toujours tenter d'extraire l'icône depuis l'exe live au lancement
+        threading.Thread(target=self._fetch_icon_bg, args=(name,), daemon=True).start()
 
     def _fetch_icon_bg(self, name: str) -> None:
+        from icon_cache import _extract_from_exe, _mem_cache
         game_data = self._dm.get_games().get(name, {})
         exe_path  = game_data.get("exe_path", "") or ""
         proc_name = game_data.get("process", "").lower()
 
-        # Cherche l'exe du processus si on ne l'a pas
-        if not exe_path and proc_name:
+        # 1. Priorité absolue : extraire depuis l'exe du processus LIVE
+        if proc_name:
             try:
                 for p in psutil.process_iter(["name", "exe"]):
                     if p.info["name"] and p.info["name"].lower() == proc_name:
                         found = p.info.get("exe") or ""
                         if found and not any(d in found.lower() for d in _SKIP_DIRS):
-                            exe_path = found
-                            self._dm.batch_update_exe_paths({name: exe_path})
+                            img = _extract_from_exe(found, 32)
+                            if img:
+                                disk_path = ICON_DIR / (_safe_filename(name) + ".png")
+                                ICON_DIR.mkdir(parents=True, exist_ok=True)
+                                try:
+                                    img.save(disk_path, "PNG")
+                                    for k in [k for k in _mem_cache if k[0] == name]:
+                                        del _mem_cache[k]
+                                except Exception:
+                                    pass
+                                self._dm.batch_update_exe_paths({name: found})
+                                with self._lock:
+                                    self._events.append({"type": "icon_ready", "name": name})
+                                return
+                            exe_path = found or exe_path
+                            self._dm.batch_update_exe_paths({name: found})
                         break
             except Exception:
                 pass
 
+        # 2. Icône déjà en cache disque et pas d'exe live → rien à faire
+        disk_path = ICON_DIR / (_safe_filename(name) + ".png")
+        if disk_path.exists():
+            return
+
+        # 3. Fallbacks : exe_path sauvegardé → Steam appid → recherche nom Steam → find_exe
         img = get_game_icon(name, exe_path, 32)
 
         if not img:
