@@ -17,7 +17,7 @@ _SKIP_DIRS = (
     "\\windows\\winsxs\\",
 )
 
-_VERSION     = "1.2"
+_VERSION     = "1.3"
 _GITHUB_REPO = "Noxil-fr/Time-tracker"
 
 
@@ -274,6 +274,57 @@ class Api:
         start = datetime.fromisoformat(start_iso)
         end   = datetime.fromisoformat(end_iso)
         return self._dm.get_all_sessions_in_range(start, end)
+
+    def get_yearly_recap(self, year: int = None) -> dict:
+        """Rétrospective de l'année (par défaut l'année précédente)."""
+        now = datetime.now()
+        if year is None:
+            year = now.year - 1
+
+        games = self._dm.get_games()
+        game_stats: dict = {}
+        monthly: dict    = {}
+        longest          = {"game": "", "seconds": 0, "date": ""}
+
+        for name, data in games.items():
+            for s in data.get("sessions", []):
+                try:
+                    dt = datetime.fromisoformat(s["start"])
+                except Exception:
+                    continue
+                if dt.year != year:
+                    continue
+                dur = s.get("duration", 0)
+                if not dur:
+                    continue
+                if name not in game_stats:
+                    game_stats[name] = {"seconds": 0, "sessions": 0}
+                game_stats[name]["seconds"]  += dur
+                game_stats[name]["sessions"] += 1
+                m = dt.month
+                monthly[m] = monthly.get(m, 0) + dur
+                if dur > longest["seconds"]:
+                    longest = {"game": name, "seconds": dur, "date": s["start"]}
+
+        top_games = sorted(
+            [{"name": n, "seconds": v["seconds"], "sessions": v["sessions"]}
+             for n, v in game_stats.items()],
+            key=lambda x: x["seconds"], reverse=True
+        )[:5]
+
+        best_month_num  = max(monthly, key=monthly.get) if monthly else None
+        best_month_secs = monthly.get(best_month_num, 0) if best_month_num else 0
+
+        return {
+            "year":              year,
+            "total_seconds":     sum(v["seconds"]  for v in game_stats.values()),
+            "games_count":       len(game_stats),
+            "sessions_count":    sum(v["sessions"] for v in game_stats.values()),
+            "top_games":         top_games,
+            "best_month_num":    best_month_num,
+            "best_month_seconds": best_month_secs,
+            "longest":           longest,
+        }
 
     # ── Processus ────────────────────────────────────────────────────────────
 

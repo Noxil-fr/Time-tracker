@@ -782,10 +782,259 @@ body {
   border-color: rgba(34,197,94,.65);
   background: rgba(34,197,94,.08);
   color: var(--green);
+  cursor: default;
 }
 .btn-update.ready:hover {
-  background: rgba(34,197,94,.18);
-  border-color: var(--green);
+  background: rgba(34,197,94,.08);
+  border-color: rgba(34,197,94,.65);
+}
+
+/* ── Bouton Noël ──────────────────────────────────────────────────────── */
+@keyframes xmas-glow {
+  0%,100% { box-shadow: 0 0 5px 1px rgba(166,227,161,.25), inset 0 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 14px 4px rgba(166,227,161,.55), 0 0 28px 8px rgba(166,227,161,.12); }
+}
+@keyframes xmas-bounce {
+  0%,100% { transform: translateY(0) rotate(-6deg) scale(1); }
+  50%      { transform: translateY(-2px) rotate(6deg) scale(1.08); }
+}
+.btn-xmas {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  background: linear-gradient(145deg, rgba(166,227,161,.2) 0%, rgba(40,100,55,.15) 100%);
+  border: 1.5px solid rgba(166,227,161,.6);
+  border-radius: var(--radius); font-size: 19px;
+  cursor: pointer; flex-shrink: 0;
+  animation: xmas-glow 1.8s ease-in-out infinite;
+  transition: transform .12s, border-color .15s, background .15s;
+}
+.btn-xmas:hover {
+  border-color: rgba(166,227,161,.9);
+  background: linear-gradient(145deg, rgba(166,227,161,.32) 0%, rgba(40,100,55,.22) 100%);
+  animation: xmas-bounce .6s ease-in-out infinite, xmas-glow 1.8s ease-in-out infinite;
+}
+
+/* ── Story rétrospective ──────────────────────────────────────────────── */
+.modal-year-story {
+  width: 480px; height: 460px; max-height: 460px;
+  position: relative; overflow: hidden;
+  border-color: rgba(249,199,79,.3);
+  box-shadow: 0 24px 70px rgba(0,0,0,.7), 0 0 50px rgba(166,227,161,.08);
+  display: flex; flex-direction: column;
+}
+.story-bg {
+  position: absolute; inset: 0;
+  background: linear-gradient(160deg, #0d0d1a 0%, #1a0d2e 100%);
+  transition: background .55s ease;
+  z-index: 0;
+}
+.story-close {
+  position: absolute; top: 12px; right: 14px; z-index: 3;
+  color: rgba(205,214,244,.4);
+}
+.story-close:hover { color: rgba(205,214,244,.85); }
+
+.story-content {
+  position: relative; z-index: 1;
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 24px 32px 8px; text-align: center;
+}
+.story-footer {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 22px; flex-shrink: 0;
+  border-top: 1px solid rgba(255,255,255,.07);
+}
+
+.story-icon { font-size: 52px; margin-bottom: 18px; display: block; line-height: 1; }
+
+.story-counter {
+  font: 800 72px var(--font); line-height: 1; margin-bottom: 14px;
+  letter-spacing: -2px;
+}
+.story-unit { font-size: .48em; opacity: .75; font-weight: 700; }
+
+.story-big-text {
+  font: 700 30px var(--font); line-height: 1.2; margin-bottom: 14px;
+  color: #f9e2af;
+}
+.story-game-name {
+  font: 700 22px var(--font); color: #cdd6f4;
+  line-height: 1.25; margin-bottom: 10px;
+  max-width: 360px;
+}
+.story-desc {
+  font: 400 16px var(--font); color: rgba(205,214,244,.75);
+  line-height: 1.5; max-width: 340px;
+}
+.story-subdesc {
+  font: 400 13px var(--font); color: rgba(205,214,244,.45);
+  margin-top: 8px; line-height: 1.5;
+}
+
+.story-dots { display: flex; gap: 6px; align-items: center; }
+.story-dot {
+  width: 6px; height: 6px; border-radius: 3px;
+  background: rgba(255,255,255,.18);
+  transition: width .3s, background .3s;
+}
+.story-dot.active { width: 20px; background: #f9c74f; }
+
+.btn-story-next {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18);
+  border-radius: 20px; color: #cdd6f4;
+  font: 600 13px var(--font); padding: 8px 20px;
+  cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+}
+.btn-story-next:hover { background: rgba(255,255,255,.16); }
+.btn-story-next.final {
+  background: linear-gradient(90deg, rgba(166,227,161,.2), rgba(249,199,79,.2));
+  border-color: rgba(249,199,79,.5); color: #f9e2af;
+}
+.btn-story-next.final:hover {
+  background: linear-gradient(90deg, rgba(166,227,161,.32), rgba(249,199,79,.32));
+}
+
+/* ── Modale rétrospective annuelle ────────────────────────────────────── */
+@keyframes recap-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+@keyframes recap-sparkle {
+  0%,100% { opacity: .5; transform: scale(.8); }
+  50%      { opacity: 1;  transform: scale(1.2); }
+}
+
+.modal-year-recap {
+  width: 560px;
+  border-color: rgba(249,199,79,.35);
+  box-shadow: 0 20px 60px rgba(0,0,0,.6), 0 0 40px rgba(166,227,161,.08);
+}
+
+.year-recap-header {
+  background: linear-gradient(135deg, #1c3a26 0%, #2a1a08 60%, #1a2a38 100%);
+  padding: 24px 20px 20px;
+  position: relative; overflow: hidden;
+}
+.year-recap-header::before {
+  content: '❄ ✦ ⭐ ✦ ❄ ✦ ⭐ ✦ ❄ ✦ ⭐ ✦ ❄';
+  position: absolute; top: 6px; left: 0; right: 0;
+  font-size: 9px; text-align: center; letter-spacing: 6px;
+  color: rgba(249,199,79,.4); pointer-events: none;
+}
+.year-recap-header::after {
+  content: '❄ ✦ ⭐ ✦ ❄ ✦ ⭐ ✦ ❄ ✦ ⭐ ✦ ❄';
+  position: absolute; bottom: 6px; left: 0; right: 0;
+  font-size: 9px; text-align: center; letter-spacing: 6px;
+  color: rgba(166,227,161,.35); pointer-events: none;
+}
+.year-recap-header .modal-title {
+  font-size: 26px;
+  background: linear-gradient(90deg, #a6e3a1, #f9e2af, #fab387, #f9e2af, #a6e3a1);
+  background-size: 200% auto;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: recap-shimmer 4s linear infinite;
+}
+.year-recap-header .modal-close {
+  color: rgba(205,214,244,.5);
+  -webkit-text-fill-color: rgba(205,214,244,.5);
+}
+.year-recap-header .modal-close:hover { color: #cdd6f4; -webkit-text-fill-color: #cdd6f4; }
+
+.year-recap-body { padding: 16px 20px 8px; overflow-y: auto; }
+
+.year-recap-kpis {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  margin-bottom: 20px;
+}
+.year-recap-kpi {
+  border-radius: var(--radius); padding: 14px 12px; text-align: center;
+  border: 1px solid transparent;
+}
+.year-recap-kpi:nth-child(1) {
+  background: linear-gradient(135deg, rgba(166,227,161,.12), rgba(166,227,161,.04));
+  border-color: rgba(166,227,161,.25);
+}
+.year-recap-kpi:nth-child(2) {
+  background: linear-gradient(135deg, rgba(249,199,79,.12), rgba(249,199,79,.04));
+  border-color: rgba(249,199,79,.25);
+}
+.year-recap-kpi:nth-child(3) {
+  background: linear-gradient(135deg, rgba(243,139,168,.12), rgba(243,139,168,.04));
+  border-color: rgba(243,139,168,.25);
+}
+.year-recap-kpi .kpi-val {
+  font: 700 24px var(--font); line-height: 1.1;
+}
+.year-recap-kpi:nth-child(1) .kpi-val { color: #a6e3a1; }
+.year-recap-kpi:nth-child(2) .kpi-val { color: #f9c74f; }
+.year-recap-kpi:nth-child(3) .kpi-val { color: #f38ba8; }
+.year-recap-kpi .kpi-label {
+  font: 12px var(--font); color: var(--subtext0); margin-top: 4px;
+}
+
+.year-recap-section { margin-bottom: 16px; }
+.year-recap-section-title {
+  font: 600 11px var(--font);
+  color: #f9c74f;
+  text-transform: uppercase; letter-spacing: .08em;
+  margin-bottom: 10px; padding-bottom: 6px;
+  border-bottom: 1px solid rgba(249,199,79,.2);
+}
+
+.recap-game-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.recap-game-rank {
+  font: 600 14px var(--font); color: var(--subtext0);
+  width: 22px; text-align: right; flex-shrink: 0;
+}
+.recap-game-name {
+  font: 13px var(--font); color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: 180px; flex-shrink: 0;
+}
+.recap-game-bar-wrap { flex: 1; background: var(--surface0); border-radius: 3px; height: 7px; }
+.recap-game-bar {
+  height: 7px; border-radius: 3px;
+  background: linear-gradient(90deg, #a6e3a1, #f9c74f);
+}
+.recap-game-time {
+  font: 12px var(--font); color: var(--subtext1);
+  width: 52px; text-align: right; flex-shrink: 0;
+}
+
+.recap-highlights { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.recap-highlight {
+  border-radius: var(--radius); padding: 12px;
+  border: 1px solid transparent;
+}
+.recap-highlight:nth-child(1) {
+  background: linear-gradient(135deg, rgba(137,220,235,.1), rgba(137,220,235,.03));
+  border-color: rgba(137,220,235,.2);
+}
+.recap-highlight:nth-child(2) {
+  background: linear-gradient(135deg, rgba(250,179,135,.1), rgba(250,179,135,.03));
+  border-color: rgba(250,179,135,.2);
+}
+.recap-highlight .hl-label {
+  font: 11px var(--font); color: var(--subtext0); margin-bottom: 4px;
+}
+.recap-highlight .hl-val {
+  font: 600 15px var(--font); color: var(--text); line-height: 1.3;
+}
+.recap-highlight .hl-sub {
+  font: 11px var(--font); color: var(--subtext0); margin-top: 2px;
+}
+
+.year-recap-footer {
+  padding: 14px 20px;
+  border-top: 1px solid rgba(249,199,79,.15);
+  background: linear-gradient(135deg, rgba(28,58,38,.4), rgba(26,26,46,.4));
+  display: flex; justify-content: space-between; align-items: center;
+  flex-shrink: 0;
 }
 
 /* ── Bouton compte ────────────────────────────────────────────────────── */

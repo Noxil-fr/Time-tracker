@@ -25,6 +25,7 @@
       </nav>
       <span class="f5-hint"><kbd>F5</kbd> to refresh</span>
       <button id="btn-update" class="btn-update hidden" title="Mise à jour disponible"></button>
+      <button id="btn-xmas" class="btn-xmas hidden" title="Rétrospective de l'année">🎄</button>
       <button id="btn-account" class="btn-account" title="Paramètres">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
@@ -348,6 +349,32 @@
         <button id="btn-stats-custom-go" class="btn-blue btn-sm">Afficher</button>
       </div>
       <div id="stats-custom-content" class="stats-custom-content"></div>
+    </div>
+
+    <!-- Story rétrospective (intro slide par slide) -->
+    <div id="modal-year-story" class="modal modal-year-story hidden">
+      <div id="story-bg" class="story-bg"></div>
+      <button class="modal-close story-close">✕</button>
+      <div id="story-content" class="story-content"></div>
+      <div class="story-footer">
+        <div id="story-dots" class="story-dots"></div>
+        <button id="btn-story-next" class="btn-story-next">Suivant →</button>
+      </div>
+    </div>
+
+    <!-- Rétrospective annuelle -->
+    <div id="modal-year-recap" class="modal modal-year-recap hidden">
+      <div class="modal-header year-recap-header">
+        <span class="modal-title" id="year-recap-title">🎄 Rétrospective</span>
+        <button class="modal-close">✕</button>
+      </div>
+      <div class="modal-body year-recap-body" id="year-recap-body">
+        <!-- rempli par JS -->
+      </div>
+      <div class="modal-footer year-recap-footer">
+        <button id="btn-year-recap-dismiss" class="btn-sm btn-muted">Ne plus afficher cette année</button>
+        <button id="btn-year-recap-close" class="btn-sm btn-blue">Fermer</button>
+      </div>
     </div>
 
     <!-- Session rétroactive -->
