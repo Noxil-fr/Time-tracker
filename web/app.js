@@ -694,47 +694,179 @@ async function renderStats() {
 }
 
 let _otherStatsShowExcluded = false;
+let _otherStatsTab = 'alltime';
 
 function _openOtherStats() {
+  // Collecte toutes les années ayant des sessions
+  const years = new Set();
+  for (const data of Object.values(S.games)) {
+    for (const s of (data.sessions || [])) {
+      try { years.add(new Date(s.start).getFullYear()); } catch {}
+    }
+  }
+
+  // Reconstruit les onglets d'années dynamiquement
+  const tabsContainer = document.querySelector('#modal-other-stats .other-stats-tabs');
+  tabsContainer.querySelectorAll('[data-otab^="year-"]').forEach(b => b.remove());
+  const toggleBtn = el('btn-other-stats-toggle');
+  [...years].sort((a, b) => b - a).forEach(y => {
+    const btn = document.createElement('button');
+    btn.className = 'other-stats-tab';
+    btn.dataset.otab = `year-${y}`;
+    btn.textContent = y;
+    tabsContainer.insertBefore(btn, toggleBtn);
+  });
+
   _otherStatsShowExcluded = false;
+  _otherStatsTab = 'alltime';
+  document.querySelectorAll('#modal-other-stats .other-stats-tab').forEach(b => b.classList.toggle('active', b.dataset.otab === 'alltime'));
   _renderOtherStats();
   _showOverlay('modal-other-stats');
 }
 
 function _renderOtherStats() {
+  const filterYear = _otherStatsTab.startsWith('year-') ? parseInt(_otherStatsTab.slice(5)) : null;
+
   const allGames = Object.entries(S.games);
-  const base     = _otherStatsShowExcluded
+  const baseGames = _otherStatsShowExcluded
     ? allGames.filter(([,d]) => (d.total_seconds || 0) > 0)
     : allGames.filter(([,d]) => !d.exclude_rank && (d.total_seconds || 0) > 0);
-  const content  = el('other-stats-content');
 
-  const playedCount  = base.length;
-  const totalSeconds = base.reduce((s, [,d]) => s + (d.total_seconds || 0), 0);
-  const allSessions  = base.flatMap(([,d]) => (d.sessions || []).filter(s => s.duration > 0));
-  const avgSession   = allSessions.length
-    ? Math.round(allSessions.reduce((s, x) => s + x.duration, 0) / allSessions.length) : 0;
-  const avgPerGame   = base.length
-    ? Math.round(totalSeconds / base.length) : 0;
+  // Enrichit chaque jeu avec ses sessions filtrées et son total dans la portée
+  const enriched = [];
+  for (const [name, data] of baseGames) {
+    let sessions = (data.sessions || []).filter(s => s.duration > 0);
+    let total;
+    if (filterYear !== null) {
+      sessions = sessions.filter(s => { try { return new Date(s.start).getFullYear() === filterYear; } catch { return false; } });
+      total = sessions.reduce((sum, s) => sum + s.duration, 0);
+      if (total === 0) continue;
+    } else {
+      total = data.total_seconds || 0;
+      if (total === 0 && sessions.length === 0) continue;
+    }
+    enriched.push({ name, data, total, sessions });
+  }
 
-  const sorted      = [...base].sort(([,a],[,b]) => (b.total_seconds||0) - (a.total_seconds||0));
-  const mostPlayed  = sorted[0] || null;
-  const leastPlayed = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+  const content = el('other-stats-content');
 
-  const row = (label, value) => `
-    <div class="other-stat-row">
-      <span class="other-stat-label">${label}</span>
-      <span class="other-stat-value">${value}</span>
-    </div>`;
+  const playedCount  = enriched.length;
+  const totalSeconds = enriched.reduce((s, g) => s + g.total, 0);
+  const sessionCount = enriched.reduce((s, g) => s + g.sessions.length, 0);
+  const sessionTotalSecs = enriched.reduce((s, g) => s + g.sessions.reduce((a, x) => a + x.duration, 0), 0);
+  const avgSession   = sessionCount ? Math.round(sessionTotalSecs / sessionCount) : 0;
+  const avgPerGame   = playedCount  ? Math.round(totalSeconds / playedCount) : 0;
+
+  const sorted      = [...enriched].sort((a, b) => b.total - a.total);
+  const mostPlayed  = sorted[0]                  ? { name: sorted[0].name,                  total: sorted[0].total }                  : null;
+  const leastPlayed = sorted.length > 1          ? { name: sorted[sorted.length-1].name,    total: sorted[sorted.length-1].total }    : null;
+
+  // Records par session
+  let longestSess = null, longestGame = '';
+  const monthTotals = {}, dayTotals = {};
+  for (const g of enriched) {
+    for (const s of g.sessions) {
+      if (!longestSess || s.duration > longestSess.duration) { longestSess = s; longestGame = g.name; }
+      try {
+        const d = new Date(s.start);
+        const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        monthTotals[mk] = (monthTotals[mk] || 0) + s.duration;
+        const dk = d.toISOString().slice(0, 10);
+        dayTotals[dk] = (dayTotals[dk] || 0) + s.duration;
+      } catch {}
+    }
+  }
+
+  const fmtMonthKey = k => { const [y,m] = k.split('-'); return `${_MONTHS_FR[+m-1]} ${y}`; };
+  const fmtDayKey   = k => { const d = new Date(k + 'T12:00:00'); return `${d.getDate()} ${_MONTHS_FR[d.getMonth()]} ${d.getFullYear()}`; };
+
+  const bestMonthKey  = Object.keys(monthTotals).reduce((a,b) => monthTotals[a]>monthTotals[b]?a:b, '');
+  const bestMonthSecs = monthTotals[bestMonthKey] || 0;
+  const bestDayKey    = Object.keys(dayTotals).reduce((a,b) => dayTotals[a]>dayTotals[b]?a:b, '');
+  const bestDaySecs   = dayTotals[bestDayKey] || 0;
+
+  const longestDate = longestSess ? (() => {
+    const d = new Date(longestSess.start);
+    return `${d.getDate()} ${_MONTHS_FR[d.getMonth()]} ${d.getFullYear()}`;
+  })() : '';
 
   el('btn-other-stats-toggle').textContent = _otherStatsShowExcluded ? 'Masquer les exclus' : 'Inclure les exclus';
 
-  content.innerHTML =
-    row('Jeux joués', playedCount) +
-    row('Temps de jeu total', _fmtDuration(totalSeconds)) +
-    row("Durée moyenne d'une session", _fmtDuration(avgSession)) +
-    row('Temps moyen par jeu', _fmtDuration(avgPerGame)) +
-    (mostPlayed  ? row('Jeu le plus joué',  `${_esc(mostPlayed[0])} <span class="other-stat-sub">${_fmtDuration(mostPlayed[1].total_seconds)}</span>`) : '') +
-    (leastPlayed ? row('Jeu le moins joué', `${_esc(leastPlayed[0])} <span class="other-stat-sub">${_fmtDuration(leastPlayed[1].total_seconds)}</span>`) : '');
+  content.innerHTML = `
+    <div class="os-hero">
+      <div class="os-kpi os-kpi-green">
+        <div class="os-kpi-icon">🎮</div>
+        <div class="os-kpi-num">${playedCount}</div>
+        <div class="os-kpi-label">Jeux joués</div>
+      </div>
+      <div class="os-kpi os-kpi-blue">
+        <div class="os-kpi-icon">⏱️</div>
+        <div class="os-kpi-num">${_fmtH(totalSeconds)}</div>
+        <div class="os-kpi-label">Temps total</div>
+      </div>
+      <div class="os-kpi os-kpi-pink">
+        <div class="os-kpi-icon">🎯</div>
+        <div class="os-kpi-num">${sessionCount}</div>
+        <div class="os-kpi-label">Sessions</div>
+      </div>
+    </div>
+
+    <div class="os-section">
+      <div class="os-section-title">Moyennes</div>
+      <div class="os-grid-2">
+        <div class="os-card">
+          <div class="os-card-label">Durée moy. par session</div>
+          <div class="os-card-val">${_fmtDuration(avgSession)}</div>
+        </div>
+        <div class="os-card">
+          <div class="os-card-label">Temps moyen par jeu</div>
+          <div class="os-card-val">${_fmtDuration(avgPerGame)}</div>
+        </div>
+      </div>
+    </div>
+
+    ${longestSess ? `
+    <div class="os-section">
+      <div class="os-section-title">Records</div>
+      <div class="os-record-card">
+        <div class="os-record-icon">⚡</div>
+        <div>
+          <div class="os-record-label">Session la plus longue</div>
+          <div class="os-record-val">${_fmtDuration(longestSess.duration)}</div>
+          <div class="os-record-sub">${_esc(longestGame)} · ${longestDate}</div>
+        </div>
+      </div>
+      ${(bestMonthKey || bestDayKey) ? `<div class="os-grid-2">
+        ${bestMonthKey ? `<div class="os-card">
+          <div class="os-card-label">📅 Mois le plus actif</div>
+          <div class="os-card-val">${fmtMonthKey(bestMonthKey)}</div>
+          <div class="os-card-sub">${_fmtDuration(bestMonthSecs)}</div>
+        </div>` : ''}
+        ${bestDayKey ? `<div class="os-card">
+          <div class="os-card-label">📅 Jour le plus actif</div>
+          <div class="os-card-val">${fmtDayKey(bestDayKey)}</div>
+          <div class="os-card-sub">${_fmtDuration(bestDaySecs)}</div>
+        </div>` : ''}
+      </div>` : ''}
+    </div>` : ''}
+
+    ${(mostPlayed || leastPlayed) ? `
+    <div class="os-section">
+      <div class="os-section-title">Jeux</div>
+      <div class="os-grid-2">
+        ${mostPlayed ? `<div class="os-card os-card-best">
+          <div class="os-card-label">🏆 Jeu le plus joué</div>
+          <div class="os-card-val">${_esc(mostPlayed.name)}</div>
+          <div class="os-card-sub">${_fmtDuration(mostPlayed.total)}</div>
+        </div>` : ''}
+        ${leastPlayed ? `<div class="os-card os-card-least">
+          <div class="os-card-label">💤 Jeu le moins joué</div>
+          <div class="os-card-val">${_esc(leastPlayed.name)}</div>
+          <div class="os-card-sub">${_fmtDuration(leastPlayed.total)}</div>
+        </div>` : ''}
+      </div>
+    </div>` : ''}
+  `;
 }
 
 function _openStatsCustom() {
@@ -2180,6 +2312,13 @@ function init() {
 
   // Stats
   el('btn-stats-other').addEventListener('click', _openOtherStats);
+  document.querySelector('#modal-other-stats .other-stats-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.other-stats-tab');
+    if (!btn) return;
+    _otherStatsTab = btn.dataset.otab;
+    document.querySelectorAll('#modal-other-stats .other-stats-tab').forEach(b => b.classList.toggle('active', b === btn));
+    _renderOtherStats();
+  });
   el('btn-other-stats-toggle').onclick = () => {
     _otherStatsShowExcluded = !_otherStatsShowExcluded;
     _renderOtherStats();
