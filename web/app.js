@@ -1800,13 +1800,275 @@ function _onUpdateReady(path) {
   btn.style.removeProperty('--p');
   btn.classList.remove('downloading');
   btn.classList.add('ready');
-  btn.innerHTML = `<span>✓</span><span>Installer</span>`;
-  btn.onclick = () => api('install_update', path);
+  btn.innerHTML = `<span>✓</span><span>Installation...</span>`;
+  btn.onclick = null;
+  setTimeout(() => api('install_update', path), 1200);
 }
 
 function _onUpdateError() {
   const btn = el('btn-update');
   btn.classList.add('hidden');
+}
+
+// ── Rétrospective annuelle ────────────────────────────────────────────────
+const _MONTHS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin',
+                    'Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+let _yearRecapData = null;
+let _storyIdx         = 0;
+let _storySlides      = [];
+let _storyTransition  = false;
+
+function _initXmasBtn() {
+  if (new Date().getMonth() !== 0) return;
+  el('btn-xmas').classList.remove('hidden');
+}
+
+async function _loadYearRecap() {
+  if (!_yearRecapData)
+    _yearRecapData = await api('get_yearly_recap', new Date().getFullYear() - 1);
+  return _yearRecapData;
+}
+
+async function _openYearRecap() {
+  const recap = await _loadYearRecap();
+  if (!recap) return;
+  _renderYearRecap(recap);
+  _showOverlay('modal-year-recap');
+}
+
+// ── Story ─────────────────────────────────────────────────────────────────
+
+function _fmtH(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return m ? `${h}h${String(m).padStart(2,'0')}` : `${h}h`;
+}
+
+function _buildStorySlides(r) {
+  const yr = r.year, nyear = r.year + 1;
+  return [
+    {
+      bg: 'linear-gradient(160deg, #0d0d1a 0%, #1a0d2e 100%)',
+      html: () => `
+        <div class="story-icon">🎆</div>
+        <div class="story-big-text" style="background:linear-gradient(90deg,#a6e3a1,#f9e2af,#fab387);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-size:34px">
+          Bonne année ${nyear}&nbsp;!
+        </div>
+        <div class="story-desc" style="margin-top:10px">
+          Avant de commencer, retour sur ton <strong style="color:#f9e2af">${yr}</strong> en jeux...
+        </div>`,
+    },
+    {
+      bg: 'linear-gradient(160deg, #0a1a0a 0%, #1a3a1a 100%)',
+      counter: r.games_count,
+      html: () => `
+        <div class="story-icon">🎮</div>
+        <div class="story-counter" style="color:#a6e3a1"><span id="story-num">0</span></div>
+        <div class="story-desc">jeux différents joués en ${yr}</div>`,
+    },
+    {
+      bg: 'linear-gradient(160deg, #1a1005 0%, #2e2010 100%)',
+      counter: Math.round(r.total_seconds / 3600),
+      html: () => `
+        <div class="story-icon">⏱</div>
+        <div class="story-counter" style="color:#f9c74f"><span id="story-num">0</span><span class="story-unit">h</span></div>
+        <div class="story-desc">de jeu au total cette année</div>`,
+    },
+    {
+      bg: 'linear-gradient(160deg, #1a050d 0%, #2e0d1a 100%)',
+      counter: r.sessions_count,
+      html: () => `
+        <div class="story-icon">🕹</div>
+        <div class="story-counter" style="color:#f38ba8"><span id="story-num">0</span></div>
+        <div class="story-desc">sessions de jeu enregistrées</div>`,
+    },
+    ...(r.longest && r.longest.seconds > 0 ? [{
+      bg: 'linear-gradient(160deg, #1a0a05 0%, #2e1a08 100%)',
+      html: () => {
+        const d = new Date(r.longest.date);
+        return `
+          <div class="story-icon">⏳</div>
+          <div class="story-counter" style="color:#fab387;font-size:56px">${_fmtH(r.longest.seconds)}</div>
+          <div class="story-desc">ta session la plus longue</div>
+          <div class="story-subdesc">${r.longest.game}<br>${d.getDate()} ${_MONTHS_FR[d.getMonth()]}</div>`;
+      },
+    }] : []),
+    ...(r.best_month_num ? [{
+      bg: 'linear-gradient(160deg, #051a1a 0%, #0d2e2e 100%)',
+      html: () => `
+        <div class="story-icon">📅</div>
+        <div class="story-big-text" style="color:#89dceb;font-size:36px">${_MONTHS_FR[r.best_month_num - 1]}</div>
+        <div class="story-desc">ton mois le plus actif</div>
+        <div class="story-counter" style="color:#89dceb;font-size:42px;margin-top:6px;margin-bottom:0">${_fmtH(r.best_month_seconds)}</div>`,
+    }] : []),
+    ...(r.top_games.length ? [{
+      bg: 'linear-gradient(160deg, #05051e 0%, #0d1a40 100%)',
+      html: () => `
+        <div class="story-icon">🏆</div>
+        <div class="story-game-name">${r.top_games[0].name}</div>
+        <div class="story-desc">ton jeu de l'année</div>
+        <div class="story-counter" style="color:#cba6f7;font-size:42px;margin-top:6px;margin-bottom:0">${_fmtH(r.top_games[0].seconds)}</div>
+        <div class="story-subdesc">${r.top_games[0].sessions} session${r.top_games[0].sessions > 1 ? 's' : ''}</div>`,
+    }] : []),
+    {
+      bg: 'linear-gradient(160deg, #1c3a26 0%, #2a1a08 60%, #1a2a38 100%)',
+      isFinal: true,
+      html: () => `
+        <div class="story-icon" style="font-size:56px">🎄</div>
+        <div class="story-big-text" style="background:linear-gradient(90deg,#a6e3a1,#f9e2af,#fab387);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">
+          C'était une belle année&nbsp;!
+        </div>
+        <div class="story-desc" style="margin-top:8px">Découvre le bilan complet de ${yr}</div>`,
+    },
+  ];
+}
+
+function _animateCount(elId, target, duration = 1300) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const start = performance.now();
+  const run = (now) => {
+    const t = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(eased * target);
+    if (t < 1) requestAnimationFrame(run);
+    else el.textContent = target;
+  };
+  requestAnimationFrame(run);
+}
+
+function _showStorySlide(idx) {
+  const slide   = _storySlides[idx];
+  const content = el('story-content');
+  const btn     = el('btn-story-next');
+
+  const doShow = () => {
+    el('story-bg').style.background = slide.bg;
+    content.innerHTML = slide.html();
+    content.style.opacity = '0';
+    content.style.transform = 'translateY(22px)';
+    requestAnimationFrame(() => {
+      content.style.transition = 'opacity .4s ease-out, transform .4s ease-out';
+      content.style.opacity = '1';
+      content.style.transform = 'translateY(0)';
+    });
+    if (slide.counter != null)
+      setTimeout(() => _animateCount('story-num', slide.counter), 150);
+    document.querySelectorAll('.story-dot')
+      .forEach((d, i) => d.classList.toggle('active', i === idx));
+    if (slide.isFinal) {
+      btn.textContent = 'Voir le bilan complet →';
+      btn.classList.add('final');
+    } else {
+      btn.textContent = 'Suivant →';
+      btn.classList.remove('final');
+    }
+    _storyTransition = false;
+  };
+
+  if (idx > 0) {
+    _storyTransition = true;
+    content.style.transition = 'opacity .2s ease-in, transform .2s ease-in';
+    content.style.opacity = '0';
+    content.style.transform = 'translateY(-14px)';
+    setTimeout(doShow, 220);
+  } else {
+    doShow();
+  }
+}
+
+async function _startYearStory() {
+  const recap = await _loadYearRecap();
+  if (!recap) return;
+  _storySlides     = _buildStorySlides(recap);
+  _storyIdx        = 0;
+  _storyTransition = false;
+  // Créer les dots
+  el('story-dots').innerHTML = _storySlides
+    .map(() => `<div class="story-dot"></div>`).join('');
+  // Réinitialiser le fond
+  el('story-bg').style.transition = 'none';
+  el('story-bg').style.background = _storySlides[0].bg;
+  setTimeout(() => (el('story-bg').style.transition = ''), 50);
+  _showOverlay('modal-year-story');
+  _showStorySlide(0);
+}
+
+function _renderYearRecap(r) {
+  el('year-recap-title').textContent = `🎄 Bonne année ${r.year + 1} !`;
+
+  const fmtH = _fmtH;
+
+  // KPIs
+  const kpiHtml = `
+    <div class="year-recap-kpis">
+      <div class="year-recap-kpi">
+        <div class="kpi-val">${fmtH(r.total_seconds)}</div>
+        <div class="kpi-label">⏱ jouées</div>
+      </div>
+      <div class="year-recap-kpi">
+        <div class="kpi-val">${r.games_count}</div>
+        <div class="kpi-label">🎮 jeux différents</div>
+      </div>
+      <div class="year-recap-kpi">
+        <div class="kpi-val">${r.sessions_count}</div>
+        <div class="kpi-label">📊 sessions</div>
+      </div>
+    </div>`;
+
+  // Top 5 games
+  const maxSec = r.top_games.length ? r.top_games[0].seconds : 1;
+  const medals = ['🥇','🥈','🥉','4.','5.'];
+  const topHtml = r.top_games.length ? `
+    <div class="year-recap-section">
+      <div class="year-recap-section-title">Top jeux de l'année</div>
+      ${r.top_games.map((g, i) => `
+        <div class="recap-game-row">
+          <span class="recap-game-rank">${medals[i]}</span>
+          <span class="recap-game-name" title="${g.name}">${g.name}</span>
+          <div class="recap-game-bar-wrap">
+            <div class="recap-game-bar" style="width:${Math.round(g.seconds/maxSec*100)}%"></div>
+          </div>
+          <span class="recap-game-time">${fmtH(g.seconds)}</span>
+        </div>`).join('')}
+    </div>` : '';
+
+  // Highlights
+  const bestMonthStr = r.best_month_num
+    ? `${_MONTHS_FR[r.best_month_num - 1]} — ${fmtH(r.best_month_seconds)}`
+    : '—';
+
+  let longestStr = '—', longestSub = '';
+  if (r.longest && r.longest.seconds) {
+    longestStr = fmtH(r.longest.seconds);
+    const d = new Date(r.longest.date);
+    longestSub = `${r.longest.game} · ${d.getDate()} ${_MONTHS_FR[d.getMonth()]}`;
+  }
+
+  const hlHtml = `
+    <div class="year-recap-section">
+      <div class="year-recap-section-title">Points forts</div>
+      <div class="recap-highlights">
+        <div class="recap-highlight">
+          <div class="hl-label">📅 Meilleur mois</div>
+          <div class="hl-val">${bestMonthStr}</div>
+        </div>
+        <div class="recap-highlight">
+          <div class="hl-label">⏳ Session la plus longue</div>
+          <div class="hl-val">${longestStr}</div>
+          ${longestSub ? `<div class="hl-sub">${longestSub}</div>` : ''}
+        </div>
+      </div>
+    </div>`;
+
+  el('year-recap-body').innerHTML = kpiHtml + topHtml + hlHtml;
+}
+
+function _checkAutoYearRecap() {
+  if (new Date().getMonth() !== 0) return;
+  const prevYear = new Date().getFullYear() - 1;
+  if (localStorage.getItem(`retro_dismissed_${prevYear}`)) return;
+  setTimeout(_startYearStory, 800);
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -1937,8 +2199,28 @@ function init() {
   el('btn-reset-cloud').addEventListener('click', _resetCloudData);
 
 
+  // Bouton et modale rétrospective annuelle
+  _initXmasBtn();
+  el('btn-xmas').addEventListener('click', _startYearStory);
+  el('btn-story-next').addEventListener('click', () => {
+    if (_storyTransition) return;
+    if (_storySlides[_storyIdx] && _storySlides[_storyIdx].isFinal) {
+      closeModal();
+      setTimeout(_openYearRecap, 80);
+    } else {
+      _storyIdx++;
+      if (_storyIdx < _storySlides.length) _showStorySlide(_storyIdx);
+    }
+  });
+  el('btn-year-recap-close').addEventListener('click', closeModal);
+  el('btn-year-recap-dismiss').addEventListener('click', () => {
+    localStorage.setItem(`retro_dismissed_${new Date().getFullYear() - 1}`, '1');
+    closeModal();
+  });
+
   // Auth check → démarre l'app (poll) seulement si connecté
   checkAuth();
+  _checkAutoYearRecap();
 
   // Vérification de mise à jour différée (5 s après le démarrage)
   setTimeout(_checkUpdate, 5000);
