@@ -346,7 +346,11 @@ class SyncManager:
     def _bg_push(self) -> None:
         with self._lock:
             self._push_timer = None
-        r = self._push()
+            rt = getattr(self, "_retry_timer", None)
+            if rt:
+                rt.cancel()
+            self._retry_timer = None
+        r = self._push_inner()
         if r.get("ok"):
             self._last_sync_ok    = True
             self._last_sync_time  = datetime.now(timezone.utc)
@@ -355,25 +359,64 @@ class SyncManager:
         else:
             self._last_sync_ok    = False
             self._last_sync_error = r.get("error", "Erreur inconnue")
+            # Retry automatique dans 30s
+            with self._lock:
+                t = threading.Timer(30.0, self._bg_push)
+                t.daemon = True
+                t.start()
+                self._retry_timer = t
 
-    def _push(self) -> dict:
+    def _push_inner(self) -> dict:
+        """Synchrone — toujours appelé depuis un thread background."""
         if not self._session.get("access_token"):
             return {"ok": False, "error": "Non connecte"}
 
-        def _do():
-            payload = {
-                "user_id":    self._session["user_id"],
-                "games":      self._dm.get_games(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-            hdrs = {**self._headers(), "Prefer": "resolution=merge-duplicates"}
-            status, data = _http("POST", self._rest_url(f"/{_TABLE}"), payload, hdrs)
-            if status == 401 and self._try_refresh():
-                return self._push()
-            if status in (200, 201):
-                return {"ok": True}
-            return {"ok": False, "error": f"HTTP {status}: {data}"}
-        return _run_threaded(_do)
+        user_id = self._session["user_id"]
+
+        # 1. Merge-before-push : récupère le distant et fusionne avant d'écraser
+        try:
+            url = self._rest_url(f"/{_TABLE}?user_id=eq.{user_id}&select=games")
+            req = urllib.request.Request(url, headers=self._headers())
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                raw  = resp.read().decode("utf-8").strip()
+                rows = json.loads(raw) if raw else []
+                if isinstance(rows, list) and rows:
+                    remote_games = rows[0].get("games") or {}
+                    if remote_games:
+                        self._dm.merge_games(remote_games)
+        except Exception:
+            pass  # réseau indisponible — on pousse l'état local tel quel
+
+        # 2. Pousse l'état fusionné
+        payload = {
+            "user_id":    user_id,
+            "games":      self._dm.get_games(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        hdrs = {**self._headers(), "Prefer": "resolution=merge-duplicates"}
+        status, data = _http("POST", self._rest_url(f"/{_TABLE}"), payload, hdrs)
+        if status == 401 and self._try_refresh():
+            return self._push_inner()
+        if status in (200, 201):
+            return {"ok": True}
+        return {"ok": False, "error": f"HTTP {status}: {data}"}
+
+    def _push(self) -> dict:
+        """Wrapper threadé — pour les appels depuis le thread webview (sync_push_now)."""
+        return _run_threaded(self._push_inner)
+
+    def flush(self) -> None:
+        """Push synchrone bloquant — à appeler à la fermeture de l'app."""
+        if not self._session.get("access_token"):
+            return
+        # Annule les timers en attente pour éviter un double push
+        with self._lock:
+            for attr in ("_push_timer", "_retry_timer"):
+                t = getattr(self, attr, None)
+                if t:
+                    t.cancel()
+                setattr(self, attr, None)
+        self._push_inner()
 
     def reset_cloud_data(self) -> dict:
         if not self._session.get("access_token"):
