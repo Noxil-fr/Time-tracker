@@ -99,6 +99,7 @@ def main():
 
     webview.start(setup, window)
     tracker.stop()
+    sync.flush()  # garantit que la dernière session est sauvegardée en remote
 
 
 if __name__ == "__main__":
