@@ -300,6 +300,30 @@ class DataManager:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2, ensure_ascii=False)
 
+    def is_retro_dismissed(self, year: int) -> bool:
+        try:
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    return year in json.load(f).get("retro_dismissed_years", [])
+        except Exception:
+            pass
+        return False
+
+    def set_retro_dismissed(self, year: int) -> None:
+        SETTINGS_FILE.parent.mkdir(exist_ok=True)
+        try:
+            existing = {}
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+        except Exception:
+            pass
+        dismissed = set(existing.get("retro_dismissed_years", []))
+        dismissed.add(year)
+        existing["retro_dismissed_years"] = sorted(dismissed)
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+
     def get_steam_config(self) -> dict:
         try:
             if SETTINGS_FILE.exists():

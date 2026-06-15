@@ -90,6 +90,8 @@ def main():
         tracker.start()
         tray.start()
         api_obj.set_tray(tray)
+        import threading
+        threading.Thread(target=api_obj.check_retro_notification, daemon=True).start()
 
         if start_hidden:
             w.hide()

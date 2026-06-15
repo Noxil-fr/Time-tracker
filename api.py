@@ -85,6 +85,12 @@ class Api:
     def on_game_start(self, name: str):
         with self._lock:
             self._events.append({"type": "start", "name": name})
+        # Notification directe — indépendante du poll JS
+        threading.Thread(
+            target=self.show_notification,
+            args=(name, "Suivi démarré", "green"),
+            daemon=True,
+        ).start()
         # Toujours tenter d'extraire l'icône depuis l'exe live au lancement
         threading.Thread(target=self._fetch_icon_bg, args=(name,), daemon=True).start()
 
@@ -160,6 +166,13 @@ class Api:
                 "type": "stop", "name": name,
                 "duration": duration, "total": total,
             })
+        # Notification directe — indépendante du poll JS
+        msg = f"Session : {format_duration(duration)}  •  Total : {format_duration(total)}"
+        threading.Thread(
+            target=self.show_notification,
+            args=(name, msg, "blue"),
+            daemon=True,
+        ).start()
         self._bump()
 
     def on_suggestion(self, game_name: str, proc_name: str, exe_path: str):
@@ -170,6 +183,15 @@ class Api:
                 "proc_name": proc_name,
                 "exe_path":  exe_path,
             })
+        # Notification directe — indépendante du poll JS
+        parts = exe_path.replace("/", "\\").split("\\") if exe_path else []
+        msg   = "\\".join(parts[-2:]) if len(parts) >= 2 else (exe_path or proc_name)
+        suggestion = {"game_name": game_name, "proc_name": proc_name, "exe_path": exe_path}
+        threading.Thread(
+            target=self.show_notification,
+            args=(f"Nouveau jeu détecté : {game_name}", msg, "blue", suggestion),
+            daemon=True,
+        ).start()
 
     # ── Jeux ─────────────────────────────────────────────────────────────────
 
@@ -274,6 +296,30 @@ class Api:
         start = datetime.fromisoformat(start_iso)
         end   = datetime.fromisoformat(end_iso)
         return self._dm.get_all_sessions_in_range(start, end)
+
+    # ── Rétrospective ─────────────────────────────────────────────────────────
+
+    def retro_set_dismissed(self, year: int) -> dict:
+        """Appelé par le JS quand l'utilisateur clique 'Ne plus afficher'."""
+        self._dm.set_retro_dismissed(int(year))
+        return {"ok": True}
+
+    def check_retro_notification(self) -> None:
+        """Vérifie au démarrage si la notif rétrospective doit être affichée."""
+        import time
+        time.sleep(3)
+        now = datetime.now()
+        if now.month != 1:
+            return
+        retro_year = now.year - 1
+        if self._dm.is_retro_dismissed(retro_year):
+            return
+        self._notif.show(
+            title=f"🎄 Rétrospective {retro_year} disponible !",
+            message=f"Ton année de jeu en chiffres t'attend.\nOuvre l'app pour la découvrir.",
+            color="gold",
+            _duration=9000,
+        )
 
     def get_yearly_recap(self, year: int = None) -> dict:
         """Rétrospective de l'année (par défaut l'année précédente)."""

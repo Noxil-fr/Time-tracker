@@ -21,6 +21,8 @@ _BLUE    = "#4a9eff"
 _BLUE_D  = "#3a8ef0"
 _GREEN   = "#22c55e"
 _GREEN_D = "#16a34a"
+_GOLD    = "#f5c542"
+_GOLD_D  = "#d4a017"
 
 
 def _apply_dwm(hwnd: int, accent_hex: str) -> None:
@@ -48,9 +50,9 @@ def _make_window(data: dict) -> tk.Tk:
     suggestion = data.get("suggestion")
     icon_b64   = data.get("icon_b64", "")
 
-    accent   = _GREEN   if color == "green" else _BLUE
-    accent_d = _GREEN_D if color == "green" else _BLUE_D
-    W = 360
+    accent   = _GREEN if color == "green" else (_GOLD if color == "gold" else _BLUE)
+    accent_d = _GREEN_D if color == "green" else (_GOLD_D if color == "gold" else _BLUE_D)
+    W = 380 if color == "gold" else 360
 
     root = tk.Tk()
     root.overrideredirect(True)
@@ -62,8 +64,9 @@ def _make_window(data: dict) -> tk.Tk:
     outer = tk.Frame(root, bg=_BASE)
     outer.pack(fill="both", expand=True)
 
-    # Barre accent gauche (3px, pleine hauteur)
-    tk.Frame(outer, bg=accent, width=3).pack(side="left", fill="y")
+    # Barre accent gauche (plus épaisse pour les notifs festives)
+    bar_w = 5 if color == "gold" else 3
+    tk.Frame(outer, bg=accent, width=bar_w).pack(side="left", fill="y")
 
     # Zone contenu
     content = tk.Frame(outer, bg=_BASE)
@@ -153,7 +156,8 @@ def _make_window(data: dict) -> tk.Tk:
         never.bind("<Leave>",    lambda _: never.config(bg=_SURF1, fg=_SUB))
 
     else:
-        root.after(5000, root.destroy)
+        duration = data.get("_duration", 5000)
+        root.after(duration, root.destroy)
 
     # ── DWM : coins arrondis + bordure ───────────────────────────────────
     root.update_idletasks()

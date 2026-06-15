@@ -173,18 +173,7 @@ function _updateTimers() {
 }
 
 function _handleEvent(ev) {
-  if (ev.type === 'start') {
-    api('show_notification', ev.name, 'Suivi démarré', 'green', null);
-  } else if (ev.type === 'stop') {
-    api('show_notification', ev.name,
-      `Session : ${_fmtDuration(ev.duration)}  •  Total : ${_fmtDuration(ev.total)}`,
-      'blue', null);
-  } else if (ev.type === 'suggestion') {
-    const msg = ev.exe_path ? ev.exe_path.split('\\').slice(-2).join('\\') : ev.proc_name;
-    api('show_notification', `Nouveau jeu détecté : ${ev.game_name}`, msg, 'blue', {
-      game_name: ev.game_name, proc_name: ev.proc_name, exe_path: ev.exe_path,
-    });
-  } else if (ev.type === 'steam_result') {
+  if (ev.type === 'steam_result') {
     _onSteamResult(ev);
   } else if (ev.type === 'icon_ready') {
     delete S.icons[ev.name];
@@ -2353,7 +2342,9 @@ function init() {
   });
   el('btn-year-recap-close').addEventListener('click', closeModal);
   el('btn-year-recap-dismiss').addEventListener('click', () => {
-    localStorage.setItem(`retro_dismissed_${new Date().getFullYear() - 1}`, '1');
+    const retroYear = new Date().getFullYear() - 1;
+    localStorage.setItem(`retro_dismissed_${retroYear}`, '1');
+    api('retro_set_dismissed', retroYear);
     closeModal();
   });
 

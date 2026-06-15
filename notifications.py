@@ -26,7 +26,7 @@ class NotificationManager:
 
     def show(self, title: str, message: str,
              color: str = "blue", suggestion: dict | None = None,
-             icon=None) -> None:
+             icon=None, _duration: int | None = None) -> None:
         icon_b64 = ""
         if icon is not None:
             try:
@@ -43,6 +43,8 @@ class NotificationManager:
             "suggestion": suggestion,
             "icon_b64":   icon_b64,
         }
+        if _duration is not None:
+            data["_duration"] = _duration
 
         threading.Thread(target=self._spawn, args=(data, suggestion),
                          daemon=True).start()
