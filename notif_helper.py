@@ -6,6 +6,7 @@ import base64
 import ctypes
 import io
 import json
+import os
 import sys
 import tkinter as tk
 
@@ -125,13 +126,17 @@ def _make_window(data: dict) -> tk.Tk:
         act.pack(fill="x")
 
         def _add():
-            sys.stdout.write("add\n")
-            sys.stdout.flush()
+            try:
+                os.write(1, b"add\n")
+            except Exception:
+                pass
             root.destroy()
 
         def _ignore_forever():
-            sys.stdout.write("ignore\n")
-            sys.stdout.flush()
+            try:
+                os.write(1, b"ignore\n")
+            except Exception:
+                pass
             root.destroy()
 
         add = tk.Label(act, text="Ajouter →", bg=accent, fg=_MANTLE,

@@ -383,7 +383,7 @@ class SyncManager:
                 if isinstance(rows, list) and rows:
                     remote_games = rows[0].get("games") or {}
                     if remote_games:
-                        self._dm.merge_games(remote_games)
+                        self._dm.merge_games(remote_games, add_missing=False)
         except Exception:
             pass  # réseau indisponible — on pousse l'état local tel quel
 

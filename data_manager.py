@@ -245,12 +245,15 @@ class DataManager:
             except Exception:
                 pass
 
-    def merge_games(self, remote_games: dict) -> int:
+    def merge_games(self, remote_games: dict, add_missing: bool = True) -> int:
         """Fusionne les jeux distants dans les données locales (union des sessions).
+        Si add_missing=False, ignore les jeux distants absents localement (évite de ressusciter les suppressions).
         Retourne le nombre de jeux modifiés ou ajoutés."""
         merged = 0
         for name, remote in remote_games.items():
             if name not in self._data["games"]:
+                if not add_missing:
+                    continue
                 self._data["games"][name] = remote
                 merged += 1
             else:
