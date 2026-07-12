@@ -659,7 +659,14 @@ class Api:
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = _json.loads(resp.read())
                 tag = data.get("tag_name", "").lstrip("v")
-                if not tag or tag == _VERSION:
+                if not tag:
+                    return
+                try:
+                    remote_v = tuple(int(x) for x in tag.split("."))
+                    local_v  = tuple(int(x) for x in _VERSION.split("."))
+                except Exception:
+                    return
+                if remote_v <= local_v:
                     return
                 assets = data.get("assets", [])
                 exe_url = next(
