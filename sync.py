@@ -454,6 +454,6 @@ class SyncManager:
             if not rows:
                 return {"ok": True, "merged": 0}
             remote_games = rows[0].get("games") or {}
-            merged = self._dm.merge_games(remote_games)
+            merged = self._dm.sync_from_remote(remote_games)
             return {"ok": True, "merged": merged}
         return _run_threaded(_do)

@@ -279,6 +279,48 @@ class DataManager:
             self._save()
         return merged
 
+    def sync_from_remote(self, remote_games: dict) -> int:
+        """Sync autoritaire depuis Supabase au démarrage.
+        - Supprime du local les jeux absents du distant (supprimés sur un autre appareil ou manuellement)
+        - Ajoute au local les jeux présents uniquement dans le distant (ajoutés sur un autre appareil)
+        - Fusionne les sessions pour les jeux présents des deux côtés
+        Garantit qu'une suppression dans Supabase est respectée localement."""
+        changed = 0
+
+        # Supprimer du local ce qui a été supprimé dans Supabase
+        for name in list(self._data["games"].keys()):
+            if name not in remote_games:
+                del self._data["games"][name]
+                changed += 1
+
+        # Ajouter / fusionner le reste
+        for name, remote in remote_games.items():
+            if name not in self._data["games"]:
+                self._data["games"][name] = remote
+                changed += 1
+            else:
+                local = self._data["games"][name]
+                local_starts = {s["start"] for s in local.get("sessions", [])}
+                added = 0
+                for s in remote.get("sessions", []):
+                    if s["start"] not in local_starts:
+                        local.setdefault("sessions", []).append(s)
+                        added += 1
+                local_steam  = local.get("steam_seconds", 0)
+                remote_steam = remote.get("steam_seconds", 0)
+                best_steam   = max(local_steam, remote_steam)
+                if best_steam != local_steam:
+                    local["steam_seconds"] = best_steam
+                if added or best_steam != local_steam:
+                    local["total_seconds"] = best_steam + sum(
+                        s["duration"] for s in local["sessions"]
+                    )
+                    changed += 1
+
+        if changed:
+            self._save()
+        return changed
+
     def get_ignored_procs(self) -> set[str]:
         try:
             if SETTINGS_FILE.exists():
