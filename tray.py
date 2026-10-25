@@ -9,7 +9,8 @@ from PIL import Image, ImageDraw
 import pystray
 
 _AUTOSTART_KEY  = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_AUTOSTART_NAME = "TimeTracker"
+_AUTOSTART_NAME = "Time Tracker"   # même nom que l'installeur (MyAppName dans TimeTracker.iss)
+_LEGACY_AUTOSTART_NAME = "TimeTracker"  # ancien nom, créait un double lancement au démarrage
 _APP_ID         = "com.timetracker.app"
 
 _app_id_registered = False
@@ -119,6 +120,17 @@ def is_autostart_enabled() -> bool:
             return "--minimized" in val
     except OSError:
         return False
+
+
+def cleanup_legacy_autostart() -> None:
+    """Supprime l'ancienne entrée 'TimeTracker' qui doublonnait celle de l'installeur."""
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE
+        ) as k:
+            winreg.DeleteValue(k, _LEGACY_AUTOSTART_NAME)
+    except OSError:
+        pass
 
 
 def set_autostart(enabled: bool) -> None:

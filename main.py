@@ -31,9 +31,10 @@ import webview
 
 from api import Api
 from data_manager import DataManager
+from journal import UntrackedJournal
 from sync import SyncManager
 from tracker import ProcessTracker
-from tray import TrayManager, acquire_single_instance_lock, set_autostart, is_autostart_enabled, _is_frozen
+from tray import TrayManager, acquire_single_instance_lock, set_autostart, is_autostart_enabled, cleanup_legacy_autostart, _is_frozen
 
 
 def _resource_path(relative: str) -> str:
@@ -48,13 +49,17 @@ def main():
 
     dm      = DataManager()
     sync    = SyncManager(dm)
-    api_obj = Api(dm, sync)
+    journal = UntrackedJournal()
+    api_obj = Api(dm, sync, journal)
 
     tracker = ProcessTracker(
         dm,
-        on_game_start = api_obj.on_game_start,
-        on_game_stop  = api_obj.on_game_stop,
-        on_suggestion = api_obj.on_suggestion,
+        on_game_start       = api_obj.on_game_start,
+        on_game_stop        = api_obj.on_game_stop,
+        on_suggestion       = api_obj.on_suggestion,
+        journal             = journal,
+        on_untracked_closed = api_obj.on_untracked_closed,
+        on_data_changed     = api_obj._bump,
     )
     api_obj.set_tracker(tracker)
 
@@ -96,8 +101,10 @@ def main():
         if start_hidden:
             w.hide()
 
-        if _is_frozen() and not is_autostart_enabled():
-            set_autostart(True)
+        if _is_frozen():
+            cleanup_legacy_autostart()
+            if not is_autostart_enabled():
+                set_autostart(True)
 
     webview.start(setup, window)
     tracker.stop()

@@ -52,7 +52,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$output = "installer\Output\TimeTracker_Setup_v1.0.exe"
+$version = (Select-String -Path installer\TimeTracker.iss -Pattern '#define MyAppVersion\s+"([^"]+)"').Matches[0].Groups[1].Value
+$output  = "installer\Output\TimeTracker_Setup_v$version.exe"
 $size   = [math]::Round((Get-Item $output).Length / 1MB, 1)
 $built  = (Get-Item $output).LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
 

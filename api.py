@@ -17,14 +17,15 @@ _SKIP_DIRS = (
     "\\windows\\winsxs\\",
 )
 
-_VERSION     = "1.7"
+_VERSION     = "1.8"
 _GITHUB_REPO = "Noxil-fr/Time-tracker"
 
 
 class Api:
-    def __init__(self, dm: DataManager, sync=None):
+    def __init__(self, dm: DataManager, sync=None, journal=None):
         self._dm        = dm
         self._sync      = sync
+        self._journal   = journal
         self._tracker: ProcessTracker | None = None
         self._tray      = None
         self._notif     = NotificationManager()
@@ -38,10 +39,12 @@ class Api:
         self._notif.set_on_ignore_game(self._notif_ignore_game)
 
     def _notif_add_game(self, game_name: str, proc_name: str, exe_path: str) -> None:
-        self.add_game(game_name, proc_name, exe_path)
+        self.add_game(game_name, proc_name, exe_path, import_untracked=True)
 
     def _notif_ignore_game(self, proc_name: str) -> None:
         self._dm.add_ignored_proc(proc_name)
+        if self._journal:
+            self._journal.forget(proc_name)
 
     def set_tracker(self, tracker: ProcessTracker):
         self._tracker = tracker
@@ -193,19 +196,53 @@ class Api:
             daemon=True,
         ).start()
 
+    def on_untracked_closed(self, game_name: str, proc_name: str, exe_path: str,
+                            duration: int) -> None:
+        """Un jeu connu mais non ajouté vient d'être fermé : on propose de l'ajouter."""
+        total = self._journal.summary(proc_name, exe_path)["seconds"] if self._journal else 0
+        msg = f"Tu viens de jouer {format_duration(duration)}"
+        if total > duration:
+            msg += f"  •  {format_duration(total)} sur 30 jours"
+        msg += "\nAjoute-le pour garder ce temps."
+        suggestion = {"game_name": game_name, "proc_name": proc_name, "exe_path": exe_path}
+        threading.Thread(
+            target=self.show_notification,
+            args=(f"Tu as joué à {game_name}", msg, "blue", suggestion),
+            daemon=True,
+        ).start()
+
     # ── Jeux ─────────────────────────────────────────────────────────────────
 
     def get_games(self) -> dict:
         return self._dm.get_games()
 
-    def add_game(self, name: str, proc: str, exe: str) -> dict:
+    def add_game(self, name: str, proc: str, exe: str, import_untracked: bool = False) -> dict:
         if self._dm.game_exists(name):
             return {"ok": False, "error": f'"{name}" existe déjà.'}
         self._dm.add_game(name, proc, exe)
         if exe and not any(d in exe.lower() for d in _SKIP_DIRS):
             get_game_icon(name, exe, 32)  # pré-cache l'icône sur disque
+        result = {"ok": True}
+        if self._journal:
+            if import_untracked:
+                self._import_untracked(name, proc, exe)
+            else:
+                result["untracked"] = self._journal.summary(proc, exe)
         self._bump()
-        return {"ok": True}
+        return result
+
+    def import_untracked(self, name: str) -> dict:
+        """Récupère dans l'historique du jeu les sessions jouées avant son ajout."""
+        game = self._dm.get_games().get(name)
+        if not game or not self._journal:
+            return {"ok": False, "seconds": 0}
+        added = self._import_untracked(name, game.get("process", ""), game.get("exe_path", ""))
+        self._bump()
+        return {"ok": True, "seconds": added}
+
+    def _import_untracked(self, name: str, proc: str, exe: str) -> int:
+        sessions = self._journal.claim(proc, exe)
+        return self._dm.import_sessions(name, sessions) if sessions else 0
 
     def delete_game(self, name: str) -> bool:
         ok = self._dm.delete_game(name)
@@ -253,7 +290,9 @@ class Api:
         new_name = new_name.strip()
         if not new_name:
             return {"ok": False, "error": "Nom vide."}
-        if not self._dm.rename_game(old_name, new_name):
+        # Via le tracker si dispo : la session en cours suit le nouveau nom
+        renamer = self._tracker.rename_game if self._tracker else self._dm.rename_game
+        if not renamer(old_name, new_name):
             return {"ok": False, "error": f'"{new_name}" existe déjà.'}
         from icon_cache import rename_icon
         rename_icon(old_name, new_name)

@@ -321,6 +321,38 @@ class DataManager:
             self._save()
         return changed
 
+    def import_sessions(self, name: str, sessions: list) -> int:
+        """Ajoute des sessions récupérées (journal des non suivis). Retourne les secondes ajoutées."""
+        game = self._data["games"].get(name)
+        if not game:
+            return 0
+        existing = {s["start"] for s in game.get("sessions", [])}
+        added = 0
+        for s in sessions:
+            if s["start"] in existing:
+                continue
+            game.setdefault("sessions", []).append({
+                "start":     s["start"],
+                "end":       s["end"],
+                "duration":  s["duration"],
+                "untracked": True,
+            })
+            added += s["duration"]
+        if added:
+            game["sessions"].sort(key=lambda s: s["start"])
+            game["total_seconds"] = game.get("total_seconds", 0) + added
+            self._save()
+        return added
+
+    def get_setting(self, key: str, default=None):
+        try:
+            if SETTINGS_FILE.exists():
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f).get(key, default)
+        except Exception:
+            pass
+        return default
+
     def get_ignored_procs(self) -> set[str]:
         try:
             if SETTINGS_FILE.exists():

@@ -57,11 +57,17 @@ class NotificationManager:
             json_str = json.dumps(data, ensure_ascii=False)
             cmd = ([sys.executable, '--notif-helper', json_str] if _FROZEN
                    else [sys.executable, _HELPER, json_str])
+            # Premier affichage forcé en SW_SHOWNOACTIVATE : sinon tkinter active sa fenêtre
+            # et vole le focus au jeu (ce qui réduit un jeu en plein écran exclusif)
+            si = subprocess.STARTUPINFO()
+            si.dwFlags    |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 4   # SW_SHOWNOACTIVATE
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE if suggestion else subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=0x08000000,   # CREATE_NO_WINDOW
+                startupinfo=si,
             )
             if suggestion and (self._on_add or self._on_ignore):
                 try:

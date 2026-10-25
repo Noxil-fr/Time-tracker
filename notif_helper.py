@@ -4,6 +4,7 @@ Usage : python notif_helper.py '<json>'
 """
 import base64
 import ctypes
+import ctypes.wintypes as wintypes
 import io
 import json
 import os
@@ -44,6 +45,50 @@ def _apply_dwm(hwnd: int, accent_hex: str) -> None:
         pass
 
 
+def _show_on_top(root: tk.Tk, x: int, y: int, w: int, h: int) -> bool:
+    """Affiche la fenêtre au-dessus des jeux en plein écran fenêtré, sans jamais prendre le focus
+    (prendre le focus réduirait un jeu en plein écran exclusif). False si l'API Windows échoue."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.GetAncestor.restype     = wintypes.HWND
+        user32.GetAncestor.argtypes    = [wintypes.HWND, ctypes.c_uint]
+        user32.GetWindowLongW.restype  = ctypes.c_long
+        user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+        user32.SetWindowPos.argtypes   = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                          ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                          ctypes.c_uint]
+
+        GA_ROOT          = 2
+        GWL_EXSTYLE      = -20
+        WS_EX_TOPMOST    = 0x00000008
+        WS_EX_TOOLWINDOW = 0x00000080
+        WS_EX_NOACTIVATE = 0x08000000
+        HWND_TOPMOST     = wintypes.HWND(-1)
+        SWP_NOACTIVATE   = 0x0010
+        SWP_SHOWWINDOW   = 0x0040
+        SWP_FLAGS        = 0x0001 | 0x0002 | SWP_NOACTIVATE  # NOSIZE|NOMOVE|NOACTIVATE
+
+        hwnd  = user32.GetAncestor(root.winfo_id(), GA_ROOT) or root.winfo_id()
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE,
+                              style | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+
+        def _raise():
+            try:
+                user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_FLAGS)
+                root.after(500, _raise)   # le jeu peut repasser devant : on réaffirme
+            except Exception:
+                pass
+
+        # root.deiconify() activerait la fenêtre : on l'affiche (et la place) sans activation
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        root.after(500, _raise)
+        return True
+    except Exception:
+        return False
+
+
 def _make_window(data: dict) -> tk.Tk:
     title      = data.get("title", "")
     message    = data.get("message", "")
@@ -55,9 +100,18 @@ def _make_window(data: dict) -> tk.Tk:
     accent_d = _GREEN_D if color == "green" else (_GOLD_D if color == "gold" else _BLUE_D)
     W = 380 if color == "gold" else 360
 
+    # Tk demande le premier plan à son démarrage. Si Windows nous l'autorise (ex. joueur
+    # inactif depuis plus de 200 s), on verrouille d'abord : la popup ne volera pas le focus
+    # au jeu. Le verrou se lève tout seul à la prochaine action de l'utilisateur.
+    try:
+        ctypes.windll.user32.LockSetForegroundWindow(1)   # LSFW_LOCK
+    except Exception:
+        pass
+
     root = tk.Tk()
     root.overrideredirect(True)
-    root.attributes("-topmost", True)
+    # Pas de root.attributes("-topmost") : Tk le pose sans SWP_NOACTIVATE et vole le focus.
+    # _show_on_top() gère le premier plan sans activation.
     root.configure(bg=_BASE)
     root.withdraw()
 
@@ -174,8 +228,18 @@ def _make_window(data: dict) -> tk.Tk:
     w  = root.winfo_reqwidth()
     h  = root.winfo_reqheight()
     y_from_bottom = data.get("_y_bottom", 56)
-    root.geometry(f"{w}x{h}+{sw - w - 16}+{sh - h - y_from_bottom}")
-    root.deiconify()
+    x, y = sw - w - 16, sh - h - y_from_bottom
+    root.geometry(f"{w}x{h}+{x}+{y}")
+    if not _show_on_top(root, x, y, w, h):
+        root.deiconify()
+
+    # Son discret pour les notifs qui attendent une réponse (audible même en plein écran)
+    if suggestion:
+        try:
+            import winsound
+            winsound.MessageBeep(winsound.MB_ICONASTERISK)
+        except Exception:
+            pass
 
     return root
 

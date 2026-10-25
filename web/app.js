@@ -34,7 +34,7 @@ const S = {
     selectedExe:  '',
     chipsBuilt:   false,
   },
-  retro: { gameName: '', procName: '', startIso: '' },
+  retro: { gameName: '' },
   deleteTarget: '',
   renameTarget: '',
 };
@@ -1101,20 +1101,18 @@ async function _confirmAdd() {
     return;
   }
 
-  // Check retroactive session
-  const startIso = await api('get_process_start', d.selectedProc);
   closeModal();
   S.version = -1;
 
-  if (startIso) {
-    const elapsed = Math.floor((Date.now() - new Date(startIso)) / 1000);
-    if (elapsed >= 60) {
-      S.retro = { gameName: name, procName: d.selectedProc, startIso };
-      const h = Math.floor(elapsed/3600), m = Math.floor((elapsed%3600)/60);
-      el('retro-msg').textContent =
-        `${name} est en cours depuis ${h > 0 ? h+'h '+String(m).padStart(2,'0')+'min' : m+' min'}.`;
-      _showOverlay('modal-retro');
-    }
+  // Sessions jouées avant l'ajout (journal local des jeux non suivis).
+  // Si le jeu tourne encore, le tracker reprend tout seul depuis son vrai lancement.
+  const u = res.untracked;
+  if (u && u.count > 0) {
+    S.retro = { gameName: name };
+    const s = u.count > 1 ? 's' : '';
+    el('retro-msg').textContent =
+      `${u.count} session${s} de ${name} trouvée${s} sur les 30 derniers jours (${_fmtDuration(u.seconds)}).`;
+    _showOverlay('modal-retro');
   }
 }
 
@@ -1153,8 +1151,8 @@ async function _confirmDelete() {
 }
 
 async function _confirmRetro() {
-  const { gameName, startIso } = S.retro;
-  await api('record_session', gameName, startIso, _toLocalISO(new Date()));
+  await api('import_untracked', S.retro.gameName);
+  S.version = -1;
   closeModal();
 }
 
