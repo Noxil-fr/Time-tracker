@@ -1,7 +1,4 @@
-import base64
-import ctypes
 import math
-import subprocess
 import sys
 import winreg
 
@@ -11,75 +8,6 @@ import pystray
 _AUTOSTART_KEY  = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _AUTOSTART_NAME = "Time Tracker"   # même nom que l'installeur (MyAppName dans TimeTracker.iss)
 _LEGACY_AUTOSTART_NAME = "TimeTracker"  # ancien nom, créait un double lancement au démarrage
-_APP_ID         = "com.timetracker.app"
-
-_app_id_registered = False
-
-
-def _register_app_id() -> None:
-    global _app_id_registered
-    if _app_id_registered:
-        return
-    try:
-        key_path = f"Software\\Classes\\AppUserModelId\\{_APP_ID}"
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as k:
-            winreg.SetValueEx(k, "DisplayName", 0, winreg.REG_SZ, "Time Tracker")
-        _app_id_registered = True
-    except Exception:
-        pass
-
-
-def _xml_escape(s: str) -> str:
-    return (s.replace("&", "&amp;")
-             .replace("<", "&lt;")
-             .replace(">", "&gt;")
-             .replace('"', "&quot;")
-             .replace("'", "&apos;"))
-
-
-def win_toast(title: str, message: str) -> None:
-    _register_app_id()
-    t = _xml_escape(title)
-    m = _xml_escape(message)
-    # Script PowerShell passé en base64 UTF-16-LE via -EncodedCommand
-    # → pas de fenêtre, pas de problème d'échappement shell
-    ps = (
-        "[void][Windows.UI.Notifications.ToastNotificationManager, "
-        "Windows.UI.Notifications, ContentType = WindowsRuntime]\n"
-        "[void][Windows.Data.Xml.Dom.XmlDocument, "
-        "Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]\n"
-        "$x = New-Object Windows.Data.Xml.Dom.XmlDocument\n"
-        f'$x.LoadXml(\'<toast><visual><binding template="ToastGeneric">'
-        f"<text>{t}</text><text>{m}</text>"
-        f"</binding></visual></toast>')\n"
-        f"[Windows.UI.Notifications.ToastNotificationManager]"
-        f"::CreateToastNotifier('{_APP_ID}')"
-        f".Show([Windows.UI.Notifications.ToastNotification]::new($x))\n"
-    )
-    encoded = base64.b64encode(ps.encode("utf-16-le")).decode("ascii")
-    try:
-        subprocess.Popen(
-            ["powershell", "-NonInteractive", "-NoProfile",
-             "-EncodedCommand", encoded],
-            creationflags=0x08000000,   # CREATE_NO_WINDOW
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        pass
-_MUTEX_NAME     = "TimeTracker_SingleInstance_Mutex"
-
-
-# ── Instance unique ───────────────────────────────────────────────────────────
-
-def acquire_single_instance_lock() -> bool:
-    """Crée un mutex nommé. Retourne False si une instance tourne déjà."""
-    handle = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
-    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-        return False
-    acquire_single_instance_lock._mutex = handle  # garde la référence vivante
-    return True
-
 
 # ── Icône ────────────────────────────────────────────────────────────────────
 
@@ -201,9 +129,3 @@ class TrayManager:
             self._build_menu(),
         )
         self._icon.run_detached()
-
-    def notify(self, title: str, message: str) -> None:
-        win_toast(title, message)
-
-    def hide_window(self) -> None:
-        self._window.hide()

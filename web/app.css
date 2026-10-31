@@ -1389,17 +1389,6 @@ body {
 }
 .stats-custom-content .stats-period-body { padding: 10px 14px 16px; }
 
-/* ── Bandeau suggestion ───────────────────────────────────────────────── */
-.suggestion-banner {
-  display: flex; align-items: center; justify-content: space-between;
-  background: var(--surface0); border: 1px solid var(--blue);
-  border-radius: var(--radius); padding: 10px 14px;
-  margin: 10px 6px 2px; gap: 12px; flex-shrink: 0;
-}
-.suggestion-text { font: 13px var(--font); color: var(--subtext0); }
-.suggestion-text strong { color: var(--text); }
-.suggestion-actions { display: flex; gap: 8px; flex-shrink: 0; }
-
 /* ── Misc ─────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 

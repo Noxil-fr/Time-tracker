@@ -285,11 +285,6 @@ def find_exe_by_process(proc_name: str) -> str | None:
     return None
 
 
-def get_pil_icon(exe_path: str, size: int = 24) -> Image.Image | None:
-    """Extraction directe depuis l'exe, sans cache disque (compat)."""
-    return _extract_from_exe(exe_path, size)
-
-
 def _extract_from_exe(exe_path: str, size: int) -> Image.Image | None:
     try:
         SHGFI_ICON      = 0x100

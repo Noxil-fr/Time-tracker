@@ -33,7 +33,7 @@ from api import Api
 from data_manager import DataManager
 from journal import UntrackedJournal
 from tracker import ProcessTracker
-from tray import TrayManager, acquire_single_instance_lock, set_autostart, is_autostart_enabled, cleanup_legacy_autostart, _is_frozen
+from tray import TrayManager, set_autostart, is_autostart_enabled, cleanup_legacy_autostart, _is_frozen
 
 
 def _resource_path(relative: str) -> str:
@@ -42,8 +42,6 @@ def _resource_path(relative: str) -> str:
 
 
 def main():
-    # acquire_single_instance_lock déjà effectué au niveau module — pas de double check
-
     start_hidden = "--minimized" in sys.argv
 
     dm      = DataManager()

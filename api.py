@@ -176,14 +176,6 @@ class Api:
         self._bump()
 
     def on_suggestion(self, game_name: str, proc_name: str, exe_path: str):
-        with self._lock:
-            self._events.append({
-                "type":      "suggestion",
-                "game_name": game_name,
-                "proc_name": proc_name,
-                "exe_path":  exe_path,
-            })
-        # Notification directe — indépendante du poll JS
         parts = exe_path.replace("/", "\\").split("\\") if exe_path else []
         msg   = "\\".join(parts[-2:]) if len(parts) >= 2 else (exe_path or proc_name)
         suggestion = {"game_name": game_name, "proc_name": proc_name, "exe_path": exe_path}
@@ -467,16 +459,6 @@ class Api:
         pil_img.save(buf, format="PNG")
         return base64.b64encode(buf.getvalue()).decode()
 
-    # ── Paramètres ───────────────────────────────────────────────────────────
-
-    def get_autostart(self) -> bool:
-        from tray import is_autostart_enabled
-        return is_autostart_enabled()
-
-    def set_autostart(self, enabled: bool):
-        from tray import set_autostart
-        set_autostart(bool(enabled))
-
     # ── Notifications flottantes ──────────────────────────────────────────────
 
     def show_notification(self, title: str, message: str,
@@ -498,9 +480,6 @@ class Api:
 
     def steam_get_config(self) -> dict:
         return self._dm.get_steam_config()
-
-    def steam_save_config(self, api_key: str, steam_id: str) -> None:
-        self._dm.save_steam_config(api_key.strip(), steam_id.strip())
 
     def steam_detect_ids(self) -> list:
         from steam import detect_steam_ids
@@ -679,8 +658,3 @@ class Api:
             if self._quit_cb:
                 self._quit_cb()
         threading.Thread(target=_do_quit, daemon=True).start()
-
-    # ── Utilitaires ──────────────────────────────────────────────────────────
-
-    def fmt_duration(self, seconds: int) -> str:
-        return format_duration(int(seconds))

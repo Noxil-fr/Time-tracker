@@ -188,38 +188,6 @@ function _handleEvent(ev) {
   }
 }
 
-let _pendingSuggestion = null;
-
-async function _quickAdd(ev) {
-  const res = await api('add_game', ev.game_name, ev.proc_name, ev.exe_path);
-  if (res?.ok) { S.version = -1; } // force refresh
-}
-
-function _showSuggestionBanner(ev) {
-  let banner = document.getElementById('suggestion-banner');
-  if (!banner) {
-    banner = document.createElement('div');
-    banner.id = 'suggestion-banner';
-    banner.className = 'suggestion-banner';
-    document.getElementById('tab-games').prepend(banner);
-  }
-  banner.innerHTML = `
-    <span class="suggestion-text">Nouveau jeu détecté : <strong>${ev.game_name}</strong></span>
-    <div class="suggestion-actions">
-      <button class="btn-muted suggestion-ignore">Ignorer</button>
-      <button class="btn-green suggestion-add">Ajouter</button>
-    </div>`;
-  banner.querySelector('.suggestion-ignore').onclick = () => {
-    _pendingSuggestion = null;
-    banner.remove();
-  };
-  banner.querySelector('.suggestion-add').onclick = async () => {
-    await _quickAdd(ev);
-    _pendingSuggestion = null;
-    banner.remove();
-  };
-}
-
 // ── Tab switching ──────────────────────────────────────────────────────────
 function switchTab(tab) {
   S.tab = tab;
