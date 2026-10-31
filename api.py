@@ -17,7 +17,7 @@ _SKIP_DIRS = (
     "\\windows\\winsxs\\",
 )
 
-_VERSION     = "1.9"
+_VERSION     = "1.9.1"
 _GITHUB_REPO = "Noxil-fr/Time-tracker"
 
 

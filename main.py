@@ -107,8 +107,15 @@ def main():
                 set_autostart(True)
 
     webview.start(setup, window)
-    tracker.stop()
-    sync.flush()  # garantit que la dernière session est sauvegardée en remote
+    # À la fermeture, rien ne doit pouvoir planter : les sessions sont d'abord écrites
+    # en local, l'envoi au cloud est un bonus (réseau absent → il sera fait au prochain lancement)
+    try:
+        tracker.stop()
+    finally:
+        try:
+            sync.flush()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
