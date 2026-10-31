@@ -179,9 +179,14 @@ class ProcessTracker:
 
         while self._running:
             now = datetime.now()
-            running = {}
             try:
                 running = _scan()
+            except Exception:
+                # Sans liste fiable des processus, on ne conclut rien : sinon tous les jeux
+                # paraîtraient fermés d'un coup (sessions coupées ou dupliquées)
+                time.sleep(2)
+                continue
+            try:
                 if first and self._journal:
                     self._recover_untracked(running)
                 if (now - last_tick).total_seconds() > _SLEEP_GAP:
@@ -305,8 +310,6 @@ class ProcessTracker:
                     self._dm.record_session(name, start, end)
                     self._on_stop(name, start, end)
 
-    # ── Mise en veille ────────────────────────────────────────────────────────
-
     def rename_game(self, old_name: str, new_name: str) -> bool:
         """Renomme le jeu ; si une partie est en cours, la session continue sous le nouveau nom."""
         with self._lock:
@@ -316,6 +319,8 @@ class ProcessTracker:
                 self._active[new_name] = self._active.pop(old_name)
                 self._dm.clear_checkpoint(old_name)
             return True
+
+    # ── Mise en veille ────────────────────────────────────────────────────────
 
     def _split_on_sleep(self, last_tick: datetime, now: datetime, running: dict):
         """Le PC s'est mis en veille : on coupe les sessions au dernier tour avant la veille."""

@@ -983,9 +983,15 @@ function _drawDonut(entries, total, canvasId = 'donut', size = 0) {
 
 // ── Modals helpers ─────────────────────────────────────────────────────────
 function closeModal() {
-  if (_authRequired) return;
   el('overlay').classList.add('hidden');
   document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+}
+
+function _showOverlay(modalId, canClose = true) {
+  document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+  el(modalId).classList.remove('hidden');
+  el('overlay').classList.remove('hidden');
+  el('overlay')._canClose = canClose;
 }
 
 // ── Add game dialog ────────────────────────────────────────────────────────
@@ -1214,110 +1220,11 @@ function _removeToast(id) {
   setTimeout(() => t.remove(), 200);
 }
 
-// ── Compte / Sync ──────────────────────────────────────────────────────────
-
-let _accountMode    = 'login';  // 'login' | 'register'
-let _authRequired   = false;    // true → modal non-fermable
-
-// L'app démarre toujours — le compte est optionnel (sync uniquement)
-async function checkAuth() {
-  _startApp();
-  const s = await api('sync_status');
-  if (!s || !s.available) return;
-  if (s.logged_in) {
-    _updateAccountBtn(s.email);
-    _setOfflineBanner(false);
-    _syncNow();
-  } else {
-    _setOfflineBanner(true, s.expired);
-  }
-}
-
-function _setOfflineBanner(visible, expired = false) {
-  el('offline-banner').classList.toggle('hidden', !visible);
-  el('offline-banner-text').textContent = expired
-    ? '⚠ Ta session a expiré — tes données ne sont plus sauvegardées en ligne.'
-    : "⚠ Vous n'êtes pas connecté — vos données ne sont pas sauvegardées en ligne.";
-}
-
-function _showSessionExpired() {
-  el('btn-account').classList.remove('logged-in');
-  _setOfflineBanner(true, true);
-}
-
-async function _syncNow() {
-  const r = await api('sync_pull_on_start');
-  if (r && !r.ok) {
-    if (r.code === 'other_account') {
-      // Pas d'envoi : les données de deux comptes ne sont jamais mélangées
-      showToast('Synchronisation désactivée', r.error, 'blue', [{ label: 'OK', action: () => {} }]);
-      return;
-    }
-    if (r.expired) { _showSessionExpired(); return; }
-  }
-  await api('sync_push_now');
-}
+// ── Démarrage ──────────────────────────────────────────────────────────────
 
 function _startApp() {
   poll();
   setInterval(poll, 1000);
-  setInterval(_refreshSyncStatus, 5000);
-}
-
-function _updateAccountBtn(email) {
-  const btn = el('btn-account');
-  btn.classList.add('logged-in');
-  btn.title = 'Paramètres';
-}
-
-async function _refreshSyncStatus() {
-  const info = await api('sync_get_info');
-  if (!info) return;
-  if (!info.logged_in) {
-    if (info.expired) _showSessionExpired();
-    return;
-  }
-  _applySyncStatus(info);
-}
-
-function _applySyncStatus(info) {
-  // Bouton : point coloré
-  const btn = el('btn-account');
-  let dot = btn.querySelector('.sync-dot');
-  if (!dot) { dot = document.createElement('span'); dot.className = 'sync-dot'; btn.appendChild(dot); }
-
-  if (info.pending) {
-    dot.className = 'sync-dot pending';
-    btn.title = 'Synchronisation en cours…';
-  } else if (info.synced) {
-    dot.className = 'sync-dot ok';
-    btn.title = `Synchronisé — ${info.last_sync || ''}`;
-  } else if (info.error) {
-    dot.className = 'sync-dot error';
-    btn.title = `Erreur de sync — clique pour détails`;
-  } else {
-    dot.className = 'sync-dot unknown';
-    btn.title = 'Mon compte';
-  }
-
-  // Modal : ligne de statut
-  const dotEl  = document.getElementById('sync-status-dot');
-  const textEl = document.getElementById('sync-status-text');
-  if (!dotEl || !textEl) return;
-
-  if (info.pending) {
-    dotEl.className = 'sync-status-indicator pending';
-    textEl.textContent = 'Synchronisation en cours…';
-  } else if (info.synced) {
-    dotEl.className = 'sync-status-indicator ok';
-    textEl.textContent = `Données synchronisées — ${info.last_sync || ''}`;
-  } else if (info.error) {
-    dotEl.className = 'sync-status-indicator error';
-    textEl.textContent = `Erreur — ${info.error}`;
-  } else {
-    dotEl.className = 'sync-status-indicator unknown';
-    textEl.textContent = 'Pas encore synchronisé';
-  }
 }
 
 // ── Édition manuelle du temps de jeu ──────────────────────────────────────────
@@ -1437,35 +1344,11 @@ async function _resetLocalData() {
   btn.disabled = false;
   if (r && r.ok) {
     status.style.color = 'var(--green)';
-    status.textContent = 'Données supprimées. Reconnectez-vous si besoin.';
+    status.textContent = 'Données supprimées (une copie a été archivée).';
     S.version = -1;
-    // La session a été effacée : mettre l'UI en état déconnecté
-    el('btn-account').classList.remove('logged-in');
-    el('btn-account').title = 'Paramètres';
-    el('btn-reset-local').disabled = false;
-    el('btn-reset-cloud').disabled = true;
-    _setOfflineBanner(false);
   } else {
     status.style.color = 'var(--red)';
     status.textContent = 'Erreur.';
-  }
-}
-
-async function _resetCloudData() {
-  const btn = el('btn-reset-cloud');
-  const status = el('reset-cloud-status');
-  if (!confirm('Supprimer toutes vos données cloud ? Cette action est irréversible.')) return;
-  btn.disabled = true;
-  status.style.color = '';
-  status.textContent = '…';
-  const r = await api('reset_cloud_data');
-  btn.disabled = false;
-  if (r && r.ok) {
-    status.style.color = 'var(--green)';
-    status.textContent = 'Données cloud supprimées.';
-  } else {
-    status.style.color = 'var(--red)';
-    status.textContent = r?.error || 'Erreur (connectez-vous d\'abord).';
   }
 }
 
@@ -1688,239 +1571,12 @@ function _steamStatus(msg, type) {
   s.className   = 'account-error' + (type ? ' ' + type : '');
 }
 
-// Ouvre le modal (depuis le bouton compte, quand déjà connecté)
-async function _openAccount() {
-  const info = await api('sync_get_info');
-  if (!info) return;
-  if (info.logged_in) {
-    _showAccountLoggedIn(info.email);
-    _applySyncStatus(info);
-    _showOverlay('modal-account', /*canClose=*/false);
-  } else {
-    _showLoginModal(/*mandatory=*/false);
-  }
+// Ouvre la fenêtre des paramètres
+function _openSettings() {
+  _setSettingsTab('steam');
+  _showOverlay('modal-settings');
   _steamLoadConfig();
   _steamStatus('', '');
-}
-
-function _showLoginModal(mandatory) {
-  _authRequired = mandatory;
-  el('account-title').textContent = 'Connexion';
-  el('account-auth-panel').classList.remove('hidden');
-  el('account-logged-panel').classList.add('hidden');
-  el('account-newpwd-panel').classList.add('hidden');
-  el('account-changepwd-panel').classList.add('hidden');
-  el('settings-section').classList.remove('hidden');
-  el('modal-close-account').classList.toggle('hidden', mandatory);
-  el('account-error').textContent = '';
-  document.querySelectorAll('.settings-tab').forEach(t =>
-    t.classList.toggle('hidden', t.dataset.stab !== 'data'));
-  _setSettingsTab('data');
-  _setAccountTab('login');
-  _showOverlay('modal-account', /*canClose=*/false);
-}
-
-function _showAccountLoggedIn(email) {
-  _authRequired = false;
-  _setOfflineBanner(false);
-  el('account-title').textContent = 'Mon compte';
-  el('account-auth-panel').classList.add('hidden');
-  el('account-newpwd-panel').classList.add('hidden');
-  el('account-changepwd-panel').classList.add('hidden');
-  el('account-logged-panel').classList.remove('hidden');
-  el('settings-section').classList.remove('hidden');
-  el('account-logged-email').textContent = email;
-  el('modal-close-account').classList.remove('hidden');
-  el('btn-reset-local').disabled = true;
-  el('btn-reset-cloud').disabled = false;
-  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('hidden'));
-  _setSettingsTab('steam');
-}
-
-function _showOverlay(modalId, canClose = true) {
-  document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
-  el(modalId).classList.remove('hidden');
-  el('overlay').classList.remove('hidden');
-  el('overlay')._canClose = canClose;
-}
-
-function _setAccountTab(mode) {
-  _accountMode = mode;
-  const isReset = mode === 'reset';
-  document.querySelectorAll('.account-tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.atab === mode));
-  el('account-password').closest('input') || el('account-password');
-  el('account-password').style.display = isReset ? 'none' : '';
-  el('btn-forgot').style.display       = isReset ? 'none' : '';
-  el('btn-account-submit').textContent  =
-    mode === 'login' ? 'Se connecter' : mode === 'register' ? "S'inscrire" : 'Envoyer le lien';
-  const errEl = el('account-error');
-  errEl.textContent = '';
-  errEl.style.color = '';
-}
-
-async function _submitAccount() {
-  const email    = el('account-email').value.trim();
-  const password = el('account-password').value;
-  const errEl    = el('account-error');
-
-  if (_accountMode === 'reset') { await _submitReset(); return; }
-
-  if (!email || !password) { errEl.textContent = 'Remplis tous les champs.'; return; }
-
-  const btn = el('btn-account-submit');
-  btn.disabled = true; btn.textContent = '…'; errEl.textContent = '';
-
-  const fn = _accountMode === 'login' ? 'sync_sign_in' : 'sync_sign_up';
-  const r  = await api(fn, email, password);
-
-  btn.disabled = false;
-  btn.textContent = _accountMode === 'login' ? 'Se connecter' : "S'inscrire";
-
-  if (r && r.ok) {
-    _authRequired = false;
-    _showAccountLoggedIn(r.email);
-    _updateAccountBtn(r.email);
-    closeModal();
-    _syncNow();
-  } else if (r && r.needs_confirm) {
-    errEl.style.color = 'var(--green)';
-    errEl.textContent = r.error;
-  } else {
-    errEl.style.color = '';
-    errEl.textContent = (r && r.error) || 'Erreur inconnue';
-  }
-}
-
-let _resetPollInterval = null;
-let _capturedResetToken = null;
-
-async function _submitReset() {
-  const email = el('account-email').value.trim();
-  const errEl = el('account-error');
-  if (!email) { errEl.textContent = 'Saisis ton email.'; return; }
-
-  const btn = el('btn-account-submit');
-  btn.disabled = true; btn.textContent = '…'; errEl.textContent = '';
-
-  try {
-    const r = await api('sync_start_reset_flow', email);
-    if (r && r.ok) {
-      errEl.style.color = 'var(--green)';
-      errEl.textContent = 'Email envoyé — clique sur le lien dans ta boîte mail.';
-      _startResetTokenPolling();
-    } else {
-      errEl.style.color = '';
-      errEl.textContent = (r && r.error) || 'Erreur inconnue';
-    }
-  } catch (e) {
-    errEl.style.color = '';
-    errEl.textContent = 'Erreur — relance l\'application.';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Envoyer le lien';
-  }
-}
-
-function _startResetTokenPolling() {
-  if (_resetPollInterval) clearInterval(_resetPollInterval);
-  _resetPollInterval = setInterval(async () => {
-    const tok = await api('sync_check_reset_token');
-    if (tok) {
-      clearInterval(_resetPollInterval);
-      _resetPollInterval = null;
-      _capturedResetToken = tok;
-      _showNewPasswordPanel();
-    }
-  }, 1000);
-}
-
-function _showNewPasswordPanel() {
-  _authRequired = false;
-  el('account-title').textContent = 'Nouveau mot de passe';
-  el('account-auth-panel').classList.add('hidden');
-  el('account-logged-panel').classList.add('hidden');
-  el('account-newpwd-panel').classList.remove('hidden');
-  el('modal-close-account').classList.remove('hidden');
-  el('overlay').classList.remove('hidden');
-  el('modal-account').classList.remove('hidden');
-  el('newpwd-error').textContent = '';
-  el('account-newpwd').value = '';
-  el('account-newpwd2').value = '';
-  el('account-newpwd').focus();
-}
-
-async function _submitNewPassword() {
-  const pwd1  = el('account-newpwd').value;
-  const pwd2  = el('account-newpwd2').value;
-  const errEl = el('newpwd-error');
-  if (!pwd1) { errEl.textContent = 'Saisis un mot de passe.'; return; }
-  if (pwd1 !== pwd2) { errEl.textContent = 'Les mots de passe ne correspondent pas.'; return; }
-  if (pwd1.length < 6) { errEl.textContent = 'Minimum 6 caractères.'; return; }
-
-  const btn = el('btn-newpwd-submit');
-  btn.disabled = true; btn.textContent = '…'; errEl.textContent = '';
-
-  try {
-    const r = await api('sync_update_password', _capturedResetToken, pwd1);
-    if (r && r.ok) {
-      _capturedResetToken = null;
-      closeModal();
-      showToast('Mot de passe mis à jour', 'Reconnecte-toi avec ton nouveau mot de passe.', 'green');
-      _showLoginModal(/*mandatory=*/true);
-    } else {
-      errEl.textContent = (r && r.error) || 'Erreur inconnue';
-    }
-  } catch (e) {
-    errEl.textContent = 'Erreur — réessaie.';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Mettre à jour';
-  }
-}
-
-function _showChangePwdPanel() {
-  el('account-logged-panel').classList.add('hidden');
-  el('account-changepwd-panel').classList.remove('hidden');
-  el('account-title').textContent = 'Changer le mot de passe';
-  el('changepwd-error').textContent = '';
-  el('account-changepwd1').value = '';
-  el('account-changepwd2').value = '';
-  el('account-changepwd1').focus();
-}
-
-async function _submitChangePassword() {
-  const pwd1  = el('account-changepwd1').value;
-  const pwd2  = el('account-changepwd2').value;
-  const errEl = el('changepwd-error');
-  if (!pwd1) { errEl.textContent = 'Saisis un mot de passe.'; return; }
-  if (pwd1 !== pwd2) { errEl.textContent = 'Les mots de passe ne correspondent pas.'; return; }
-  if (pwd1.length < 6) { errEl.textContent = 'Minimum 6 caractères.'; return; }
-
-  const btn = el('btn-changepwd-submit');
-  btn.disabled = true; btn.textContent = '…';
-
-  try {
-    const r = await api('sync_change_password', pwd1);
-    if (r && r.ok) {
-      closeModal();
-      showToast('Mot de passe modifié', '', 'green');
-    } else {
-      errEl.textContent = (r && r.error) || 'Erreur inconnue';
-    }
-  } catch (e) {
-    errEl.textContent = 'Erreur — réessaie.';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Mettre à jour';
-  }
-}
-
-async function _signOut() {
-  await api('sync_sign_out');
-  el('btn-account').classList.remove('logged-in');
-  el('btn-account').title = 'Paramètres';
-  el('btn-reset-local').disabled = false;
-  el('btn-reset-cloud').disabled = true;
-  _setOfflineBanner(true);
-  _showLoginModal(/*mandatory=*/false);
 }
 
 // ── Mise à jour automatique ────────────────────────────────────────────────
@@ -2295,34 +1951,10 @@ function init() {
     if (e.key === 'F5') { e.preventDefault(); location.href = location.pathname + '?v=' + Date.now(); }
   });
 
-  // Bandeau déconnecté
-  el('btn-banner-connect').addEventListener('click', _openAccount);
-
-  // Account / sync
-  el('btn-account').addEventListener('click', _openAccount);
-  document.querySelectorAll('.account-tab').forEach(t =>
-    t.addEventListener('click', () => _setAccountTab(t.dataset.atab)));
+  // Paramètres
+  el('btn-settings').addEventListener('click', _openSettings);
   document.querySelectorAll('.settings-tab').forEach(t =>
     t.addEventListener('click', () => _setSettingsTab(t.dataset.stab)));
-  el('btn-account-submit').addEventListener('click', _submitAccount);
-  el('account-password').addEventListener('keydown', e => {
-    if (e.key === 'Enter') _submitAccount();
-  });
-  el('btn-forgot').addEventListener('click', () => _setAccountTab('reset'));
-  el('btn-sign-out').addEventListener('click', _signOut);
-  el('btn-change-pwd').addEventListener('click', _showChangePwdPanel);
-  el('btn-changepwd-cancel').addEventListener('click', async () => {
-    const s = await api('sync_status');
-    if (s && s.logged_in) _showAccountLoggedIn(s.email);
-  });
-  el('btn-changepwd-submit').addEventListener('click', _submitChangePassword);
-  el('account-changepwd2').addEventListener('keydown', e => {
-    if (e.key === 'Enter') _submitChangePassword();
-  });
-  el('btn-newpwd-submit').addEventListener('click', _submitNewPassword);
-  el('account-newpwd2').addEventListener('keydown', e => {
-    if (e.key === 'Enter') _submitNewPassword();
-  });
 
   // Rank exclusions
   el('rank-excl-search').addEventListener('input', _rankExclInput);
@@ -2362,7 +1994,6 @@ function init() {
 
   // Données
   el('btn-reset-local').addEventListener('click', _resetLocalData);
-  el('btn-reset-cloud').addEventListener('click', _resetCloudData);
 
 
   // Bouton et modale rétrospective annuelle
@@ -2386,18 +2017,20 @@ function init() {
     closeModal();
   });
 
-  // Auth check → démarre l'app (poll) seulement si connecté
-  checkAuth();
+  _startApp();
   _checkAutoYearRecap();
 
   // Vérification de mise à jour différée (5 s après le démarrage)
   setTimeout(_checkUpdate, 5000);
 }
 
-// Wait for pywebview bridge or fallback to DOMContentLoaded
-if (window.pywebview) {
-  window.addEventListener('pywebviewready', init);
-} else {
-  window.addEventListener('pywebviewready', init);
-  document.addEventListener('DOMContentLoaded', init);
+// Démarre au premier des deux événements, une seule fois : sinon chaque bouton recevrait
+// deux gestionnaires (double ajout, double confirmation…) et le poll tournerait en double
+let _initDone = false;
+function _initOnce() {
+  if (_initDone) return;
+  _initDone = true;
+  init();
 }
+window.addEventListener('pywebviewready', _initOnce);
+document.addEventListener('DOMContentLoaded', _initOnce);

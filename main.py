@@ -32,7 +32,6 @@ import webview
 from api import Api
 from data_manager import DataManager
 from journal import UntrackedJournal
-from sync import SyncManager
 from tracker import ProcessTracker
 from tray import TrayManager, acquire_single_instance_lock, set_autostart, is_autostart_enabled, cleanup_legacy_autostart, _is_frozen
 
@@ -48,9 +47,8 @@ def main():
     start_hidden = "--minimized" in sys.argv
 
     dm      = DataManager()
-    sync    = SyncManager(dm)
     journal = UntrackedJournal()
-    api_obj = Api(dm, sync, journal)
+    api_obj = Api(dm, journal)
 
     tracker = ProcessTracker(
         dm,
@@ -107,15 +105,11 @@ def main():
                 set_autostart(True)
 
     webview.start(setup, window)
-    # À la fermeture, rien ne doit pouvoir planter : les sessions sont d'abord écrites
-    # en local, l'envoi au cloud est un bonus (réseau absent → il sera fait au prochain lancement)
+    # À la fermeture, rien ne doit pouvoir planter : on enregistre les sessions en cours
     try:
         tracker.stop()
-    finally:
-        try:
-            sync.flush()
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-# UNE seule source de données locale : DATA_FILE.
+# UNE seule source de données, locale uniquement : DATA_FILE (aucune synchro cloud).
 # Installé (frozen) : {exe}\data\ ; lancé depuis le code source : dossier de dev séparé,
 # pour que le développement ne touche jamais aux vraies données.
 if getattr(sys, "frozen", False):
@@ -17,8 +17,8 @@ else:
 DATA_FILE       = _DATA_DIR / "games.json"
 CHECKPOINT_FILE = _DATA_DIR / "active_sessions.json"
 SETTINGS_FILE   = _DATA_DIR / "settings.json"
-AUTH_FILE       = _DATA_DIR / "auth.json"
 ARCHIVE_DIR     = _DATA_DIR / "archive"
+_LEGACY_AUTH    = "auth.json"   # session de l'ancienne synchro Supabase (supprimée)
 
 _MIN_RECOVERY_SECONDS = 10  # sessions < 10s ignorées à la récupération
 
@@ -37,15 +37,15 @@ def migrate_to_single_file(data_dir: Path = _DATA_DIR) -> dict | None:
         return None
 
     data_file = data_dir / "games.json"
-    owner = None
+    # Le compte connecté en dernier désigne le bon fichier ; à défaut, le plus récent
+    account_id = None
     try:
-        owner = json.loads((data_dir / "auth.json").read_text(encoding="utf-8")).get("user_id")
+        account_id = json.loads((data_dir / _LEGACY_AUTH).read_text(encoding="utf-8")).get("user_id")
     except Exception:
         pass
-    chosen = next((f for f in account_files if owner and f.stem == f"games_{owner}"), None)
+    chosen = next((f for f in account_files if account_id and f.stem == f"games_{account_id}"), None)
     if chosen is None:
         chosen = max(account_files, key=lambda f: f.stat().st_mtime)
-        owner = chosen.stem[len("games_"):]
 
     data = json.loads(chosen.read_text(encoding="utf-8"))
     games = data.setdefault("games", {})
@@ -79,16 +79,27 @@ def migrate_to_single_file(data_dir: Path = _DATA_DIR) -> dict | None:
         if f.exists():
             shutil.copy2(f, archive / f.name)
 
-    data["owner"] = owner
-    data.setdefault("deleted", {})
+    data.pop("owner", None)
+    data.pop("deleted", None)
     tmp = data_file.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, data_file)
     for f in account_files:
         f.unlink()
 
-    return {"owner": owner, "games": len(games), "recovered": recovered,
+    return {"source": chosen.name, "games": len(games), "recovered": recovered,
             "skipped_overlap": skipped, "archive": str(archive)}
+
+
+def retire_legacy_auth(data_dir: Path = _DATA_DIR) -> None:
+    """Retire auth.json (jetons de l'ancienne synchro cloud, devenus inutiles) après l'avoir archivé."""
+    auth = data_dir / _LEGACY_AUTH
+    if not auth.exists():
+        return
+    archive = data_dir / "archive"
+    archive.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(auth, archive / f"auth_{datetime.now():%Y%m%d_%H%M%S}.json")
+    auth.unlink()
 
 
 class DataManager:
@@ -98,44 +109,37 @@ class DataManager:
         self._save_lock = threading.Lock()
         try:
             self.migration = migrate_to_single_file()
+            retire_legacy_auth()
         except Exception:
             self.migration = None   # anciens fichiers intacts : nouvel essai au prochain lancement
         self._data = self._load()
         self._data.setdefault("games", {})
-        self._data.setdefault("deleted", {})
-        self._data.setdefault("owner", None)
+        # Champs de l'ancienne synchro cloud (v1.9.x) : retirés à la prochaine écriture
+        self._data.pop("owner", None)
+        self._data.pop("deleted", None)
         self._recover_checkpoints()
 
     def _load(self) -> dict:
         if self._data_file.exists():
             with open(self._data_file, "r", encoding="utf-8") as f:
                 return json.load(f)
-        return {"owner": None, "games": {}, "deleted": {}}
+        return {"games": {}}
 
     def _save(self):
         """Écriture atomique : le fichier est soit l'ancien, soit le nouveau, jamais à moitié écrit."""
         with self._save_lock:
-            text = json.dumps(self._data, indent=2, ensure_ascii=False)
+            # Un autre thread (tracker, interface, notification) peut modifier les données
+            # pendant la sérialisation : on réessaie plutôt que de perdre l'écriture
+            for attempt in range(5):
+                try:
+                    text = json.dumps(self._data, indent=2, ensure_ascii=False)
+                    break
+                except RuntimeError:
+                    if attempt == 4:
+                        raise
             tmp = self._data_file.with_suffix(".tmp")
             tmp.write_text(text, encoding="utf-8")
             os.replace(tmp, self._data_file)
-
-    # ── Propriétaire des données (compte) ─────────────────────────────────────
-
-    @property
-    def owner(self) -> str | None:
-        return self._data.get("owner")
-
-    def bind_owner(self, user_id: str) -> bool:
-        """Associe les données locales au compte. Refuse si elles appartiennent à un autre compte :
-        on ne mélange jamais les données de deux comptes."""
-        current = self._data.get("owner")
-        if current and current != user_id:
-            return False
-        if current != user_id:
-            self._data["owner"] = user_id
-            self._save()
-        return True
 
     # ── Récupération après crash ───────────────────────────────────────────────
 
@@ -229,7 +233,6 @@ class DataManager:
             "total_seconds": 0,
             "sessions": [],
         }
-        self._data["deleted"].pop(name, None)
         self._save()
 
     def record_session(self, name: str, start: datetime, end: datetime) -> int:
@@ -251,17 +254,12 @@ class DataManager:
         if new_name in self._data["games"]:
             return False
         self._data["games"][new_name] = self._data["games"].pop(old_name)
-        # L'ancien nom existe encore dans le cloud : il ne doit pas revenir à la fusion
-        self._data["deleted"][old_name] = datetime.now().isoformat()
-        self._data["deleted"].pop(new_name, None)
         self._save()
         return True
 
     def delete_game(self, name: str) -> bool:
         if name in self._data["games"]:
             del self._data["games"][name]
-            # Mémorisé pour que la fusion avec le cloud ne le fasse pas réapparaître
-            self._data["deleted"][name] = datetime.now().isoformat()
             self._save()
             return True
         return False
@@ -322,7 +320,7 @@ class DataManager:
         }
 
     def reset_all_local_data(self) -> None:
-        """Vide les données de jeux locales (après archivage) et les détache du compte."""
+        """Vide les données de jeux locales, après les avoir archivées."""
         if self._data["games"]:
             ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
             try:
@@ -330,48 +328,8 @@ class DataManager:
                              ARCHIVE_DIR / f"reset_{datetime.now():%Y%m%d_%H%M%S}.json")
             except Exception:
                 pass
-        self._data = {"owner": None, "games": {}, "deleted": {}}
+        self._data = {"games": {}}
         self._save()
-
-    def merge_remote(self, remote_games: dict) -> int:
-        """Fusionne les données du cloud dans les données locales. Ne supprime JAMAIS rien :
-        - jeu absent en local → ajouté, sauf s'il a été supprimé/renommé ici ;
-        - jeu présent des deux côtés → union des sessions (par heure de début).
-        Le total n'est jamais recalculé : on ajoute seulement le temps des sessions reçues,
-        ce qui préserve les temps modifiés à la main. Retourne le nombre de jeux modifiés."""
-        changed = 0
-        deleted = self._data["deleted"]
-        for name, remote in remote_games.items():
-            if not isinstance(remote, dict):
-                continue
-            local = self._data["games"].get(name)
-            if local is None:
-                if name in deleted:
-                    continue
-                self._data["games"][name] = remote
-                changed += 1
-                continue
-
-            local_starts = {s["start"] for s in local.get("sessions", [])}
-            added = [s for s in remote.get("sessions", []) if s["start"] not in local_starts]
-            extra = sum(s["duration"] for s in added)
-
-            remote_steam = remote.get("steam_seconds", 0)
-            local_steam  = local.get("steam_seconds", 0)
-            if remote_steam > local_steam:
-                extra += remote_steam - local_steam
-                local["steam_seconds"] = remote_steam
-
-            if added:
-                local.setdefault("sessions", []).extend(added)
-                local["sessions"].sort(key=lambda s: s["start"])
-            if extra:
-                local["total_seconds"] = local.get("total_seconds", 0) + extra
-            if added or extra:
-                changed += 1
-        if changed:
-            self._save()
-        return changed
 
     def import_sessions(self, name: str, sessions: list) -> int:
         """Ajoute des sessions récupérées (journal des non suivis). Retourne les secondes ajoutées."""

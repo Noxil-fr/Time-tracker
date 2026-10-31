@@ -6,7 +6,7 @@ from datetime import datetime
 import psutil
 
 from data_manager import DataManager
-from icon_cache import get_game_icon, get_pil_icon, ICON_DIR, _safe_filename
+from icon_cache import get_game_icon, ICON_DIR, _safe_filename
 from notifications import NotificationManager
 from tracker import ProcessTracker
 from utils import format_duration
@@ -17,14 +17,13 @@ _SKIP_DIRS = (
     "\\windows\\winsxs\\",
 )
 
-_VERSION     = "1.9.1"
+_VERSION     = "2.0"
 _GITHUB_REPO = "Noxil-fr/Time-tracker"
 
 
 class Api:
-    def __init__(self, dm: DataManager, sync=None, journal=None):
+    def __init__(self, dm: DataManager, journal=None):
         self._dm        = dm
-        self._sync      = sync
         self._journal   = journal
         self._tracker: ProcessTracker | None = None
         self._tray      = None
@@ -54,8 +53,6 @@ class Api:
 
     def _bump(self):
         self._version += 1
-        if self._sync:
-            self._sync.schedule_push()
 
     # ── Poll — appelé chaque seconde par le JS ────────────────────────────────
 
@@ -258,15 +255,8 @@ class Api:
 
     def reset_local_data(self) -> dict:
         self._dm.reset_all_local_data()
-        if self._sync:
-            self._sync.clear_local_session()
         self._bump()
         return {"ok": True}
-
-    def reset_cloud_data(self) -> dict:
-        if not self._sync:
-            return {"ok": False, "error": "Non connecté"}
-        return self._sync.reset_cloud_data()
 
     def set_game_archived(self, name: str, archived: bool) -> dict:
         ok = self._dm.set_game_flag(name, "archived", bool(archived))
@@ -309,12 +299,6 @@ class Api:
 
     def game_exists(self, name: str) -> bool:
         return self._dm.game_exists(name)
-
-    def record_session(self, game_name: str, start_iso: str, end_iso: str):
-        start = datetime.fromisoformat(start_iso)
-        end   = datetime.fromisoformat(end_iso)
-        self._dm.record_session(game_name, start, end)
-        self._bump()
 
     # ── Historique ────────────────────────────────────────────────────────────
 
@@ -437,16 +421,6 @@ class Api:
     def get_snapshot(self) -> list:
         return list(self._tracker.get_snapshot()) if self._tracker else []
 
-    def get_process_start(self, proc_name: str) -> str | None:
-        proc_lower = proc_name.lower()
-        for p in psutil.process_iter(["name", "create_time"]):
-            try:
-                if p.info["name"] and p.info["name"].lower() == proc_lower:
-                    return datetime.fromtimestamp(p.info["create_time"]).isoformat()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        return None
-
     # ── Icônes ────────────────────────────────────────────────────────────────
 
     def get_icon_b64(self, game_name: str, exe_path: str) -> str:
@@ -502,76 +476,6 @@ class Api:
     def set_autostart(self, enabled: bool):
         from tray import set_autostart
         set_autostart(bool(enabled))
-
-    # ── Sync / Compte ─────────────────────────────────────────────────────────
-
-    def sync_get_info(self) -> dict:
-        if not self._sync:
-            return {"logged_in": False}
-        return self._sync.get_sync_info()
-
-    def sync_status(self) -> dict:
-        if not self._sync:
-            return {"available": False, "logged_in": False, "email": ""}
-        s = self._sync.get_status()
-        s["available"] = True
-        return s
-
-    def sync_sign_in(self, email: str, password: str) -> dict:
-        if not self._sync:
-            return {"ok": False, "error": "Sync non disponible"}
-        return self._sync.sign_in(email, password)
-
-    def sync_sign_up(self, email: str, password: str) -> dict:
-        if not self._sync:
-            return {"ok": False, "error": "Sync non disponible"}
-        return self._sync.sign_up(email, password)
-
-    def sync_start_reset_flow(self, email: str) -> dict:
-        if not self._sync:
-            return {"ok": False, "error": "Sync non disponible"}
-        return self._sync.start_reset_flow(email)
-
-    def sync_check_reset_token(self) -> str | None:
-        if not self._sync:
-            return None
-        return self._sync.check_reset_token()
-
-    def sync_update_password(self, token: str, new_password: str) -> dict:
-        if not self._sync:
-            return {"ok": False, "error": "Sync non disponible"}
-        return self._sync.update_password(token, new_password)
-
-    def sync_change_password(self, new_password: str) -> dict:
-        if not self._sync:
-            return {"ok": False, "error": "Sync non disponible"}
-        return self._sync.change_password(new_password)
-
-    def sync_sign_out(self) -> dict:
-        if not self._sync:
-            return {"ok": False, "error": "Sync non disponible"}
-        return self._sync.sign_out()
-
-    def sync_push_now(self) -> dict:
-        """Push immédiat (ex: au démarrage pour initialiser le statut de sync)."""
-        if not self._sync:
-            return {"ok": False}
-        r = self._sync._push()
-        if r.get("ok"):
-            from datetime import datetime, timezone
-            self._sync._last_sync_ok    = True
-            self._sync._last_sync_time  = datetime.now(timezone.utc)
-            self._sync._last_sync_error = None
-            self._sync._has_pending     = False
-        return r
-
-    def sync_pull_on_start(self) -> dict:
-        """Appelé une fois par le JS après connexion. Fusionne les données distantes."""
-        if not self._sync:
-            return {"ok": True, "merged": 0}
-        result = self._sync.pull_on_start()
-        self._version += 1  # toujours rafraîchir l'affichage, que la synchro réussisse ou non
-        return result
 
     # ── Notifications flottantes ──────────────────────────────────────────────
 

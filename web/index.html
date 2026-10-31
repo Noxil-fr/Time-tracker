@@ -10,12 +10,6 @@
 <body>
   <div id="app">
 
-    <!-- ── Bandeau déconnecté ───────────────────────────────────────────── -->
-    <div id="offline-banner" class="hidden">
-      <span id="offline-banner-text">⚠ Vous n'êtes pas connecté — vos données ne sont pas sauvegardées en ligne.</span>
-      <button id="btn-banner-connect">Se connecter</button>
-    </div>
-
     <!-- ── Barre d'onglets ─────────────────────────────────────────────── -->
     <header id="tabbar">
       <nav class="tab-nav">
@@ -26,7 +20,7 @@
       <span class="f5-hint"><kbd>F5</kbd> to refresh</span>
       <button id="btn-update" class="btn-update hidden" title="Mise à jour disponible"></button>
       <button id="btn-xmas" class="btn-xmas hidden" title="Rétrospective de l'année">🎄</button>
-      <button id="btn-account" class="btn-account" title="Paramètres">
+      <button id="btn-settings" class="btn-account" title="Paramètres">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -140,81 +134,15 @@
       </div>
     </div>
 
-    <!-- Compte / Sync -->
-    <div id="modal-account" class="modal modal-account hidden">
+    <!-- Paramètres -->
+    <div id="modal-settings" class="modal modal-account hidden">
 
       <div class="modal-header">
-        <span class="modal-title" id="account-title">Connexion</span>
-        <button id="modal-close-account" class="modal-close hidden">✕</button>
+        <span class="modal-title">Paramètres</span>
+        <button class="modal-close">✕</button>
       </div>
 
-      <!-- Panneau : connexion / inscription -->
-      <div id="account-auth-panel">
-        <div class="account-tabs">
-          <button class="account-tab active" data-atab="login">Connexion</button>
-          <button class="account-tab" data-atab="register">Inscription</button>
-        </div>
-        <div class="account-body">
-          <input id="account-email"    type="email"    placeholder="Email" autocomplete="email">
-          <input id="account-password" type="password" placeholder="Mot de passe" autocomplete="current-password">
-          <p id="account-error" class="account-error"></p>
-          <button id="btn-forgot" class="btn-forgot">Mot de passe oublié ?</button>
-        </div>
-        <div class="account-footer">
-          <button id="btn-account-submit" class="btn-blue btn-full">Se connecter</button>
-        </div>
-      </div>
-
-      <!-- Panneau : connecté -->
-      <div id="account-logged-panel" class="hidden">
-        <div class="account-body">
-          <div class="account-user-row">
-            <div class="account-user-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-              </svg>
-            </div>
-            <span id="account-logged-email" class="account-user-email"></span>
-          </div>
-          <div id="sync-status-row" class="sync-status-row">
-            <span id="sync-status-dot" class="sync-status-indicator"></span>
-            <span id="sync-status-text" class="sync-status-text"></span>
-          </div>
-        </div>
-        <div class="account-footer account-footer-split">
-          <button id="btn-change-pwd" class="btn-muted">Changer le mot de passe</button>
-          <button id="btn-sign-out" class="btn-red-outline">Déconnexion</button>
-        </div>
-      </div>
-
-      <!-- Panneau : changer mot de passe (connecté) -->
-      <div id="account-changepwd-panel" class="hidden">
-        <div class="account-body">
-          <input id="account-changepwd1" type="password" placeholder="Nouveau mot de passe" autocomplete="new-password">
-          <input id="account-changepwd2" type="password" placeholder="Confirmer le mot de passe" autocomplete="new-password">
-          <p id="changepwd-error" class="account-error"></p>
-        </div>
-        <div class="account-footer">
-          <button id="btn-changepwd-cancel" class="btn-muted">Annuler</button>
-          <button id="btn-changepwd-submit" class="btn-blue">Mettre à jour</button>
-        </div>
-      </div>
-
-      <!-- Panneau : nouveau mot de passe (via lien email) -->
-      <div id="account-newpwd-panel" class="hidden">
-        <div class="account-body">
-          <p class="account-hint">Lien reçu — choisis ton nouveau mot de passe.</p>
-          <input id="account-newpwd"  type="password" placeholder="Nouveau mot de passe" autocomplete="new-password">
-          <input id="account-newpwd2" type="password" placeholder="Confirmer le mot de passe" autocomplete="new-password">
-          <p id="newpwd-error" class="account-error"></p>
-        </div>
-        <div class="account-footer">
-          <button id="btn-newpwd-submit" class="btn-blue btn-full">Mettre à jour</button>
-        </div>
-      </div>
-
-      <!-- Section bas : onglets de paramètres -->
-      <div id="settings-section" class="hidden">
+      <div id="settings-section">
         <div class="settings-tabs">
           <button class="settings-tab active" data-stab="steam">Steam</button>
           <button class="settings-tab" data-stab="rank">Exclusion</button>
@@ -265,19 +193,10 @@
             <div class="data-reset-row">
               <div class="data-reset-info">
                 <div class="data-reset-label">Données locales</div>
-                <div class="data-reset-desc">Jeux et sessions sur cet appareil.</div>
+                <div class="data-reset-desc">Tous les jeux et sessions. Une copie est archivée avant.</div>
                 <p id="reset-local-status" class="data-reset-status"></p>
               </div>
               <button id="btn-reset-local" class="btn-danger">Réinitialiser</button>
-            </div>
-            <div class="data-reset-divider"></div>
-            <div class="data-reset-row">
-              <div class="data-reset-info">
-                <div class="data-reset-label">Données cloud</div>
-                <div class="data-reset-desc">Vos données sur le serveur Supabase.</div>
-                <p id="reset-cloud-status" class="data-reset-status"></p>
-              </div>
-              <button id="btn-reset-cloud" class="btn-danger" disabled>Réinitialiser</button>
             </div>
           </div>
         </div>
