@@ -11,11 +11,11 @@ from pathlib import Path
 
 from PIL import Image
 
-import os, sys
-if getattr(sys, "frozen", False):
-    ICON_DIR = Path(sys.executable).parent / "data" / "icons"
-else:
-    ICON_DIR = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker" / "icons"
+import os
+
+from data_manager import _DATA_DIR
+
+ICON_DIR = _DATA_DIR / "icons"
 _SAVE_SIZE = 32   # résolution de sauvegarde sur disque
 
 _mem_cache: dict = {}   # (game_name, size) → Image

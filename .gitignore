@@ -2,4 +2,11 @@ __pycache__/
 *.pyc
 .claude/
 error.log
-data/icons/
+
+# Données utilisateur : jamais dans le dépôt (l'app les crée elle-même)
+data/
+
+# Artefacts de build
+build/
+dist/
+installer/Output/

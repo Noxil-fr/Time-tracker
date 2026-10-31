@@ -1,8 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules, collect_all
 
+# Uniquement l'interface : AUCUNE donnée (jeux, compte, réglages) n'est embarquée dans le build.
+# L'app crée elle-même un fichier de données vide au premier lancement.
 datas = [
-    ('data', 'data'),
     ('web', 'web'),
 ]
 binaries = []

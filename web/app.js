@@ -1229,16 +1229,32 @@ async function checkAuth() {
     _setOfflineBanner(false);
     _syncNow();
   } else {
-    _setOfflineBanner(true);
+    _setOfflineBanner(true, s.expired);
   }
 }
 
-function _setOfflineBanner(visible) {
+function _setOfflineBanner(visible, expired = false) {
   el('offline-banner').classList.toggle('hidden', !visible);
+  el('offline-banner-text').textContent = expired
+    ? '⚠ Ta session a expiré — tes données ne sont plus sauvegardées en ligne.'
+    : "⚠ Vous n'êtes pas connecté — vos données ne sont pas sauvegardées en ligne.";
+}
+
+function _showSessionExpired() {
+  el('btn-account').classList.remove('logged-in');
+  _setOfflineBanner(true, true);
 }
 
 async function _syncNow() {
-  await api('sync_pull_on_start');
+  const r = await api('sync_pull_on_start');
+  if (r && !r.ok) {
+    if (r.code === 'other_account') {
+      // Pas d'envoi : les données de deux comptes ne sont jamais mélangées
+      showToast('Synchronisation désactivée', r.error, 'blue', [{ label: 'OK', action: () => {} }]);
+      return;
+    }
+    if (r.expired) { _showSessionExpired(); return; }
+  }
   await api('sync_push_now');
 }
 
@@ -1256,7 +1272,11 @@ function _updateAccountBtn(email) {
 
 async function _refreshSyncStatus() {
   const info = await api('sync_get_info');
-  if (!info || !info.logged_in) return;
+  if (!info) return;
+  if (!info.logged_in) {
+    if (info.expired) _showSessionExpired();
+    return;
+  }
   _applySyncStatus(info);
 }
 

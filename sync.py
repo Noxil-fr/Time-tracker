@@ -10,12 +10,11 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from data_manager import AUTH_FILE
+
 _SUPABASE_URL = "https://lvhfutmsjdgwchpxrojz.supabase.co"
 _SUPABASE_KEY = "sb_publishable__FDSLgnFmVJsq-6g-J86Uw_xecbLg11"
-if getattr(__import__("sys"), "frozen", False):
-    _AUTH_FILE = Path(__import__("sys").executable).parent / "data" / "auth.json"
-else:
-    _AUTH_FILE = Path(os.environ.get("APPDATA", Path.home())) / "TimeTracker" / "auth.json"
+_AUTH_FILE    = AUTH_FILE
 _TABLE        = "TT_data"
 _TIMEOUT      = 12
 _RESET_PORT   = 37123
@@ -119,6 +118,7 @@ class SyncManager:
             "user_id":       data["user"]["id"],
             "email":         data["user"]["email"],
         }
+        self._expired_email = None
         self._save_session()
 
     # ── Helpers HTTP ──────────────────────────────────────────────────────────
@@ -183,7 +183,8 @@ class SyncManager:
     def get_status(self) -> dict:
         if self._session.get("access_token"):
             return {"logged_in": True, "email": self._session.get("email", "")}
-        return {"logged_in": False, "email": ""}
+        expired = getattr(self, "_expired_email", None)
+        return {"logged_in": False, "email": expired or "", "expired": bool(expired)}
 
     # ── Reset mot de passe (serveur local) ────────────────────────────────────
 
@@ -296,15 +297,29 @@ class SyncManager:
                 self._session["refresh_token"] = data.get("refresh_token", rt)
                 self._save_session()
                 return True
+            if status in (400, 401, 403):
+                # Session refusée par Supabase : inutile de réessayer en silence pendant des jours,
+                # l'utilisateur doit se reconnecter (affiché dans l'app)
+                self._expired_email = self._session.get("email", "")
+                self._clear_session()
         except Exception:
-            pass
+            pass   # réseau indisponible : la session reste, nouvel essai plus tard
         return False
+
+    def _authed(self, method: str, url: str, payload: dict | None = None,
+                extra_headers: dict | None = None) -> tuple[int, dict]:
+        """Requête authentifiée ; un 401 déclenche UN seul renouvellement de session."""
+        for attempt in (0, 1):
+            status, data = _http(method, url, payload, {**self._headers(), **(extra_headers or {})})
+            if status != 401 or attempt == 1 or not self._try_refresh():
+                return status, data
+        return status, data
 
     # ── Statut de sync ────────────────────────────────────────────────────────
 
     def get_sync_info(self) -> dict:
         if not self._session.get("access_token"):
-            return {"logged_in": False}
+            return {"logged_in": False, "expired": bool(getattr(self, "_expired_email", None))}
         last_ok    = getattr(self, "_last_sync_ok",    None)
         last_time  = getattr(self, "_last_sync_time",  None)
         last_error = getattr(self, "_last_sync_error", None)
@@ -359,6 +374,8 @@ class SyncManager:
         else:
             self._last_sync_ok    = False
             self._last_sync_error = r.get("error", "Erreur inconnue")
+            if not self._session.get("access_token"):
+                return   # déconnecté ou session expirée : rien à réessayer
             # Retry automatique dans 30s
             with self._lock:
                 t = threading.Timer(30.0, self._bg_push)
@@ -367,36 +384,32 @@ class SyncManager:
                 self._retry_timer = t
 
     def _push_inner(self) -> dict:
-        """Synchrone — toujours appelé depuis un thread background."""
+        """Synchrone — toujours appelé depuis un thread background.
+        Fusionne d'abord le cloud dans le local, puis envoie le résultat. Si le cloud n'a pas pu
+        être lu, on n'envoie rien : on n'écrase jamais des données qu'on n'a pas fusionnées."""
         if not self._session.get("access_token"):
             return {"ok": False, "error": "Non connecte"}
-
         user_id = self._session["user_id"]
+        if self._dm.owner != user_id:
+            return {"ok": False, "error": "Données locales non associées à ce compte"}
 
-        # 1. Merge-before-push : récupère le distant et fusionne avant d'écraser
         try:
-            url = self._rest_url(f"/{_TABLE}?user_id=eq.{user_id}&select=games")
-            req = urllib.request.Request(url, headers=self._headers())
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                raw  = resp.read().decode("utf-8").strip()
-                rows = json.loads(raw) if raw else []
-                if isinstance(rows, list) and rows:
-                    remote_games = rows[0].get("games") or {}
-                    if remote_games:
-                        self._dm.merge_games(remote_games, add_missing=False)
-        except Exception:
-            pass  # réseau indisponible — on pousse l'état local tel quel
+            status, rows = self._authed(
+                "GET", self._rest_url(f"/{_TABLE}?user_id=eq.{user_id}&select=games"))
+            if status != 200:
+                return {"ok": False, "error": f"Lecture du cloud impossible (HTTP {status})"}
+            if isinstance(rows, list) and rows:
+                self._dm.merge_remote(rows[0].get("games") or {})
 
-        # 2. Pousse l'état fusionné
-        payload = {
-            "user_id":    user_id,
-            "games":      self._dm.get_games(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        hdrs = {**self._headers(), "Prefer": "resolution=merge-duplicates"}
-        status, data = _http("POST", self._rest_url(f"/{_TABLE}"), payload, hdrs)
-        if status == 401 and self._try_refresh():
-            return self._push_inner()
+            payload = {
+                "user_id":    user_id,
+                "games":      self._dm.get_games(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            status, data = self._authed("POST", self._rest_url(f"/{_TABLE}"), payload,
+                                        {"Prefer": "resolution=merge-duplicates"})
+        except Exception as e:
+            return {"ok": False, "error": f"Réseau indisponible ({type(e).__name__})"}
         if status in (200, 201):
             return {"ok": True}
         return {"ok": False, "error": f"HTTP {status}: {data}"}
@@ -441,19 +454,17 @@ class SyncManager:
 
         def _do():
             user_id = self._session["user_id"]
-            self._dm.switch_user(user_id)
-            url = self._rest_url(
-                f"/{_TABLE}?user_id=eq.{user_id}&select=games,updated_at"
-            )
-            status, data = _http("GET", url, None, self._headers())
-            if status == 401 and self._try_refresh():
-                return self.pull_on_start()
+            if not self._dm.bind_owner(user_id):
+                return {"ok": False, "code": "other_account",
+                        "error": "Les données de ce PC appartiennent à un autre compte. "
+                                 "Elles ne seront pas mélangées : déconnecte-toi, ou "
+                                 "réinitialise les données locales pour utiliser ce compte."}
+            status, data = self._authed(
+                "GET", self._rest_url(f"/{_TABLE}?user_id=eq.{user_id}&select=games,updated_at"))
             if status != 200:
-                return {"ok": False, "error": f"HTTP {status}"}
+                return {"ok": False, "error": f"HTTP {status}",
+                        "expired": not self._session.get("access_token")}
             rows = data if isinstance(data, list) else []
-            if not rows:
-                return {"ok": True, "merged": 0}
-            remote_games = rows[0].get("games") or {}
-            merged = self._dm.sync_from_remote(remote_games)
-            return {"ok": True, "merged": merged}
+            remote_games = (rows[0].get("games") or {}) if rows else {}
+            return {"ok": True, "merged": self._dm.merge_remote(remote_games)}
         return _run_threaded(_do)

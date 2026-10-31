@@ -17,7 +17,7 @@ _SKIP_DIRS = (
     "\\windows\\winsxs\\",
 )
 
-_VERSION     = "1.8.1"
+_VERSION     = "1.9"
 _GITHUB_REPO = "Noxil-fr/Time-tracker"
 
 
@@ -570,8 +570,7 @@ class Api:
         if not self._sync:
             return {"ok": True, "merged": 0}
         result = self._sync.pull_on_start()
-        if result.get("ok"):
-            self._version += 1  # toujours bumper : switch_user change les données même si merged=0
+        self._version += 1  # toujours rafraîchir l'affichage, que la synchro réussisse ou non
         return result
 
     # ── Notifications flottantes ──────────────────────────────────────────────

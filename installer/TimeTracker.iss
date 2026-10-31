@@ -3,7 +3,7 @@
 ; Prérequis : Inno Setup 6  →  https://jrsoftware.org/isinfo.php
 
 #define MyAppName      "Time Tracker"
-#define MyAppVersion   "1.8.1"
+#define MyAppVersion   "1.9"
 #define MyAppPublisher "Antoine"
 #define MyAppExeName   "TimeTracker.exe"
 #define MyAppId        "FC2BFA72-5F24-4C4C-9F61-5933CB450A5E"
@@ -58,16 +58,15 @@ Name: "{app}\data"; Permissions: users-modify
 Source: "..\dist\TimeTracker\{#MyAppExeName}"; \
   DestDir: "{app}"; Flags: ignoreversion
 
-; Dépendances (_internal) — exclut les données personnelles
+; Dépendances (_internal) — le build ne contient aucune donnée de jeu ni de compte ;
+; l'app crée elle-même un games.json vide au premier lancement
 Source: "..\dist\TimeTracker\_internal\*"; \
   DestDir: "{app}\_internal"; \
-  Flags: ignoreversion recursesubdirs createallsubdirs; \
-  Excludes: "data\games.json,data\auth.json,data\settings.json"
+  Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Dossier data\ — games.json initial (uniquement si absent)
-Source: "..\dist\TimeTracker\_internal\data\games.json"; \
-  DestDir: "{app}\data"; \
-  Flags: onlyifdoesntexist
+; Données embarquées par les anciennes versions (plus utilisées)
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\_internal\data"
 
 ; ── Icônes / raccourcis ───────────────────────────────────────────────────────
 [Icons]
