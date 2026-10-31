@@ -17,7 +17,7 @@ _SKIP_DIRS = (
     "\\windows\\winsxs\\",
 )
 
-_VERSION     = "1.8"
+_VERSION     = "1.8.1"
 _GITHUB_REPO = "Noxil-fr/Time-tracker"
 
 
@@ -276,6 +276,14 @@ class Api:
 
     def set_game_pinned(self, name: str, pinned: bool) -> dict:
         ok = self._dm.set_game_flag(name, "pinned", bool(pinned))
+        if ok:
+            self._bump()
+        return {"ok": ok}
+
+    def set_game_tracking(self, name: str, enabled: bool) -> dict:
+        """« Ne plus suivre » / « Reprendre le suivi » : la partie en cours éventuelle est
+        enregistrée par le tracker au tour suivant."""
+        ok = self._dm.set_game_tracking(name, bool(enabled))
         if ok:
             self._bump()
         return {"ok": ok}

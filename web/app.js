@@ -391,7 +391,8 @@ function _libRowHTML(name, data, maxSecs, rank) {
   const isPinned    = !!data.pinned;
   const isArchived  = !!data.archived;
   const isTimeEdited = !!data.time_edited;
-  const badges      = isPinned ? ' <span class="pin-badge">Épinglé</span>' : '';
+  const badges      = (isPinned ? ' <span class="pin-badge">Épinglé</span>' : '')
+                    + (data.paused_process ? ' <span class="pin-badge">Non suivi</span>' : '');
 
   return `<div class="lib-row${activeClass}${isArchived ? ' archived-row' : ''}">
     <div class="lib-icon row-icon" data-icon="${_esc(name)}">
@@ -490,6 +491,17 @@ function showCtxMenu(e, name, section) {
     menu.appendChild(document.createElement('hr'));
   }
 
+  // Ancienne version d'un jeu (ex. FM26 après FM27) : on garde l'historique sans le détecter
+  if (data.process) {
+    const b = make('button', '', 'Ne plus suivre');
+    b.onclick = () => { menu.remove(); _setGameTracking(name, false); };
+    menu.appendChild(b);
+  } else if (data.paused_process) {
+    const b = make('button', '', 'Reprendre le suivi');
+    b.onclick = () => { menu.remove(); _setGameTracking(name, true); };
+    menu.appendChild(b);
+  }
+
   const btnRename = make('button', '', 'Renommer');
   const btnDelete = make('button', 'danger', 'Supprimer');
   btnRename.onclick = () => { menu.remove(); openRenameModal(name); };
@@ -499,16 +511,24 @@ function showCtxMenu(e, name, section) {
   menu.appendChild(btnDelete);
 
   const x = Math.min(e.clientX, window.innerWidth  - 170);
-  const y = Math.min(e.clientY, window.innerHeight - 80);
   menu.style.left = x + 'px';
-  menu.style.top  = y + 'px';
   document.body.appendChild(menu);
+  menu.style.top  = Math.max(4, Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 4)) + 'px';
   setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
 }
 
 async function _setGamePinned(name, pinned) {
   await api('set_game_pinned', name, pinned);
   S.version = -1;
+}
+
+async function _setGameTracking(name, enabled) {
+  const res = await api('set_game_tracking', name, enabled);
+  if (!res?.ok) return;
+  S.version = -1;
+  showToast(name, enabled
+    ? 'Le jeu est de nouveau détecté.'
+    : "Le jeu n'est plus détecté. Son historique est conservé.", 'blue');
 }
 
 async function _setGameArchived(name, archived) {

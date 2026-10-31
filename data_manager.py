@@ -199,6 +199,27 @@ class DataManager:
         self._save()
         return True
 
+    def set_game_tracking(self, name: str, enabled: bool) -> bool:
+        """Arrête ou reprend la détection d'un jeu. L'historique est conservé ;
+        le process et l'exe sont mis de côté pour pouvoir reprendre le suivi."""
+        game = self._data["games"].get(name)
+        if not game:
+            return False
+        if enabled:
+            if "paused_process" not in game:
+                return False
+            game["process"]  = game.pop("paused_process")
+            game["exe_path"] = game.pop("paused_exe_path", "")
+        else:
+            if not game.get("process"):
+                return False
+            game["paused_process"]  = game["process"]
+            game["paused_exe_path"] = game.get("exe_path", "")
+            game["process"]  = ""
+            game["exe_path"] = ""
+        self._save()
+        return True
+
     def batch_update_exe_paths(self, updates: dict):
         """Persiste {nom: exe_path} pour les jeux sans exe_path. Un seul _save()."""
         changed = False

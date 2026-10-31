@@ -10,8 +10,9 @@ _RAM_SAMPLE_INTERVAL = 30   # secondes entre deux relevés de RAM des processus 
 _SLEEP_GAP           = 60   # au-delà, un trou entre deux tours de boucle = mise en veille
 
 _HELPER_PROCS = (
-    "unitycrashandler",
-    "crashreportclient",
+    "crashhandler",          # unitycrashhandler64.exe…
+    "crashpad",              # crashpad_handler
+    "crashreport",           # crashreportclient.exe…
     "unrealcefsubprocess",
     "easyanticheat",
     "battleye",
@@ -66,7 +67,7 @@ def _get_processes() -> dict:
 
 def _is_untracked_candidate(name: str, exe: str) -> bool:
     """Process qui pourrait être un jeu : exe connu, hors Windows, pas une appli connue."""
-    if not exe or name in _NOT_GAMES:
+    if not exe or name in _NOT_GAMES or not name.endswith(".exe"):
         return False
     low = exe.lower()
     if low[1:3] != ":\\":                     # pas un vrai chemin (MemCompression, Registry…)
@@ -257,15 +258,34 @@ class ProcessTracker:
             self._suggested_games.add(game_name)
             self._on_suggestion(game_name, proc_name, exe)
 
+    def _running_games(self, running: dict) -> dict[str, str]:
+        """Retourne {nom_jeu: process} pour les jeux suivis en cours d'exécution.
+        Si plusieurs jeux partagent le même process (ex. fm.exe pour FM26 et FM27),
+        le chemin de l'exe lancé désigne le bon jeu."""
+        by_proc: dict[str, list[tuple[str, str]]] = {}
+        for name, g in self._dm.get_games().items():
+            proc = (g.get("process") or "").lower()
+            if proc and proc in running:
+                by_proc.setdefault(proc, []).append((name, (g.get("exe_path") or "").lower()))
+
+        playing = {}
+        for proc, entries in by_proc.items():
+            exe = running[proc][0].lower()
+            name = (
+                next((n for n, p in entries if exe and p == exe), None)   # même chemin
+                or next((n for n, p in entries if not p), None)           # chemin encore inconnu
+                or entries[-1][0]
+            )
+            playing[name] = proc
+        return playing
+
     def _check(self, running: dict):
-        process_map = self._dm.get_process_map()
-        if not process_map:
-            return
+        playing = self._running_games(running)
 
         with self._lock:
             # Jeux nouvellement lancés
-            for proc, name in process_map.items():
-                if proc in running and name not in self._active:
+            for name, proc in playing.items():
+                if name not in self._active:
                     # Jeu ajouté pendant qu'il tournait : on reprend depuis le vrai début
                     pending = self._untracked.pop(proc, None)
                     self._active[name] = pending["start"] if pending else datetime.now()
@@ -274,18 +294,14 @@ class ProcessTracker:
                     if exe:
                         self._dm.batch_update_exe_paths({name: exe})
 
-            # Jeux fermés (ou supprimés pendant la partie)
+            # Jeux fermés (ou supprimés / plus suivis pendant la partie)
             for name in list(self._active):
-                proc = next(
-                    (p for p, n in process_map.items() if n == name), None
-                )
-                if proc is None and not self._dm.game_exists(name):
-                    self._active.pop(name)
-                    self._dm.clear_checkpoint(name)
-                elif proc and proc not in running:
-                    start = self._active.pop(name)
+                if name in playing:
+                    continue
+                start = self._active.pop(name)
+                self._dm.clear_checkpoint(name)
+                if self._dm.game_exists(name):
                     end = datetime.now()
-                    self._dm.clear_checkpoint(name)
                     self._dm.record_session(name, start, end)
                     self._on_stop(name, start, end)
 
@@ -303,13 +319,12 @@ class ProcessTracker:
 
     def _split_on_sleep(self, last_tick: datetime, now: datetime, running: dict):
         """Le PC s'est mis en veille : on coupe les sessions au dernier tour avant la veille."""
-        process_map = self._dm.get_process_map()
+        playing = self._running_games(running)
         with self._lock:
             for name, start in list(self._active.items()):
                 if (last_tick - start).total_seconds() >= 10 and self._dm.game_exists(name):
                     self._dm.record_session(name, start, last_tick)
-                proc = next((p for p, n in process_map.items() if n == name), None)
-                if proc in running:
+                if name in playing:
                     self._active[name] = now          # toujours lancé : nouvelle session
                 else:
                     self._active.pop(name)            # fermé pendant la veille
