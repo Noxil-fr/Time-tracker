@@ -311,13 +311,12 @@ class DataManager:
         if changed:
             self._save()
 
-    def get_process_map(self) -> dict:
-        """Retourne {process_lower: nom_du_jeu} — ignore les jeux sans process."""
-        return {
-            v["process"].lower(): k
-            for k, v in self._data["games"].items()
-            if v.get("process")
-        }
+    def update_exe_path(self, name: str, exe: str) -> None:
+        """Mémorise l'exe réellement lancé (premier lancement ou jeu déplacé)."""
+        game = self._data["games"].get(name)
+        if game and exe and (game.get("exe_path") or "").lower() != exe.lower():
+            game["exe_path"] = exe
+            self._save()
 
     def reset_all_local_data(self) -> None:
         """Vide les données de jeux locales, après les avoir archivées."""

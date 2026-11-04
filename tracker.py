@@ -1,3 +1,5 @@
+import ntpath
+import os
 import threading
 import time
 from datetime import datetime
@@ -77,6 +79,13 @@ def _is_untracked_candidate(name: str, exe: str) -> bool:
     if any(d in low for d in _NOT_GAME_DIRS):
         return False
     return not any(h in name for h in _HELPER_PROCS)
+
+
+def _same_install(saved_exe: str, running_exe: str) -> bool:
+    r"""Jeu déplacé : l'ancien exe n'existe plus et le dossier + l'exe portent le même nom
+    (E:\Jeux\WoW\_retail_\Wow.exe → D:\Games\WoW\_retail_\Wow.exe, mais pas \_forever_\Wow.exe)."""
+    tail = lambda p: tuple(ntpath.normpath(p).lower().split("\\")[-2:])
+    return tail(saved_exe) == tail(running_exe) and not os.path.exists(saved_exe)
 
 
 def _create_time(pid: int) -> datetime | None:
@@ -227,8 +236,7 @@ class ProcessTracker:
 
     def _check_suggestions(self, running: dict, prev_procs: set[str]):
         """Détecte les nouveaux processus qui correspondent à des jeux connus non suivis."""
-        process_map = self._dm.get_process_map()
-        tracked = set(process_map.keys())
+        tracked = set(self._running_games(running).values())
 
         # game_name -> (score, proc_name, exe)
         candidates: dict[str, tuple[int, str, str]] = {}
@@ -265,8 +273,9 @@ class ProcessTracker:
 
     def _running_games(self, running: dict) -> dict[str, str]:
         """Retourne {nom_jeu: process} pour les jeux suivis en cours d'exécution.
-        Si plusieurs jeux partagent le même process (ex. fm.exe pour FM26 et FM27),
-        le chemin de l'exe lancé désigne le bon jeu."""
+        Le nom du process ne suffit pas (fm.exe pour FM26 et FM27, Wow.exe pour Retail et
+        Forever) : dès que le chemin d'un jeu est connu, l'exe lancé doit lui correspondre.
+        Sinon c'est un autre jeu, traité comme non suivi."""
         by_proc: dict[str, list[tuple[str, str]]] = {}
         for name, g in self._dm.get_games().items():
             proc = (g.get("process") or "").lower()
@@ -276,12 +285,16 @@ class ProcessTracker:
         playing = {}
         for proc, entries in by_proc.items():
             exe = running[proc][0].lower()
+            if not exe:                                    # chemin illisible : on ne peut pas trancher
+                playing[entries[-1][0]] = proc
+                continue
             name = (
-                next((n for n, p in entries if exe and p == exe), None)   # même chemin
-                or next((n for n, p in entries if not p), None)           # chemin encore inconnu
-                or entries[-1][0]
+                next((n for n, p in entries if p == exe), None)                      # même chemin
+                or next((n for n, p in entries if p and _same_install(p, exe)), None)  # déplacé
+                or next((n for n, p in entries if not p), None)                      # chemin inconnu
             )
-            playing[name] = proc
+            if name:
+                playing[name] = proc
         return playing
 
     def _check(self, running: dict):
@@ -297,7 +310,7 @@ class ProcessTracker:
                     self._on_start(name)
                     exe = running[proc][0]
                     if exe:
-                        self._dm.batch_update_exe_paths({name: exe})
+                        self._dm.update_exe_path(name, exe)
 
             # Jeux fermés (ou supprimés / plus suivis pendant la partie)
             for name in list(self._active):
@@ -354,7 +367,7 @@ class ProcessTracker:
         return self._known_games.lookup(exe) if self._known_games else None
 
     def _check_untracked(self, running: dict, sample_ram: bool):
-        tracked = set(self._dm.get_process_map().keys())
+        tracked = set(self._running_games(running).values())
         ignored = self._dm.get_ignored_procs()
 
         with self._lock:
