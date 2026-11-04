@@ -102,7 +102,8 @@ function _fmtDuration(secs) {
 function _fmtLastPlayed(sessions) {
   if (!sessions || sessions.length === 0) return 'Jamais';
   const last = new Date(sessions[sessions.length-1].end);
-  const days = Math.floor((Date.now() - last) / 86400000);
+  // Jours du calendrier, pas tranches de 24 h (round : les jours de changement d'heure font 23 ou 25 h)
+  const days = Math.round((_startOfDay(new Date()) - _startOfDay(last)) / 86400000);
   if (days === 0) return "Aujourd'hui";
   if (days === 1) return 'Hier';
   if (days < 7)  return `il y a ${days}j`;
